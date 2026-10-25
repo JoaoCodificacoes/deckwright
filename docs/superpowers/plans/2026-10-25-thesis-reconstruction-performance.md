@@ -12,8 +12,8 @@ Status: implementation started on 2026-10-25 under the parallel-agent execution 
 ## 1. Reference and evidence
 
 Source: `C:/Users/joaod/Downloads/Joao_Thesis_Presentation.pptx`.
-SHA-256: `795452eefdaadf44201ecdcbc3ad2311cdcf734d36a21ffc502bbacd38e75ef9`.
-Package inspection: `docs/reference/thesis-deck-inventory.json`.
+SHA-256: `ee8cce03cf0201150fdd6f9c75f5d551538ed90d6ffae1c417e82b939e027e2b`.
+Reference refreshed with user approval on 2026-10-25 after the Downloads file changed. Previous hash: `795452eefdaadf44201ecdcbc3ad2311cdcf734d36a21ffc502bbacd38e75ef9`. Authoritative refreshed inventory and frozen copy are local private oracle artifacts; the earlier `docs/reference/thesis-deck-inventory.json` is historical and must not be used as the current baseline.
 
 Observed from package XML, not from live PowerPoint playback:
 
@@ -21,8 +21,8 @@ Observed from package XML, not from live PowerPoint playback:
 |---|---:|
 | Slides | 25 |
 | Slide dimensions | 12192000 × 6858000 EMU; 16:9 |
-| Package size | 4,205,625 bytes |
-| Uncompressed package contents | 6,897,566 bytes |
+| Package size | 3,977,194 bytes |
+| Uncompressed package contents | 6,669,358 bytes |
 | ZIP entries | 164 |
 | Shape elements | 703 |
 | Picture elements | 105 |
@@ -254,4 +254,6 @@ Gate: a fresh install rebuilds the thesis when supplied its local assets and run
 Begin the independent Task 1, Task 2 and benchmark-preparation slices described in the parallel-agent execution plan. The first reviewable outcome is a frozen reference/coverage manifest, reproducible oracle instructions and a fast inspect/round-trip CLI. Continue to the first authored and animated demonstrator before expanding general compatibility. A performance miss or an unsupported reference feature is addressed in its owning task, not hidden by reducing fidelity.
 
 No broad framework release, binding work or custom rendering should displace the primary acceptance test: faithfully rebuild this exact deck, inspect its behavior as data, and meet the recorded runtime budgets.
+
+
 
