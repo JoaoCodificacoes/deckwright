@@ -71,6 +71,3 @@ try {
     if ($null -ne $app) { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($app) }
     # Deliberately no Application.Quit: COM may share a user's running instance.
 }
-
-
-
