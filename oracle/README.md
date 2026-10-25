@@ -1,0 +1,24 @@
+# PowerPoint reference oracle
+
+Run from Windows PowerShell 7 with a fresh ignored output directory:
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File oracle/run.ps1 -Source C:/Users/joaod/Downloads/Joao_Thesis_Presentation.pptx -OutputDirectory fixtures/private/oracle-run
+```
+
+The default expected hash freezes the plan input. A mismatch stops before copying or opening it. Never override the expected hash without recording a reference change decision. Outputs include a separate reference copy, static 1920 × 1080 PNGs, Office version/build, input/script hashes and export hashes. The source is opened only through the separate copy, read-only; no save is performed. Fresh output directories prevent accidental replacement of prior evidence.
+
+The worker is bounded by a parent timeout. Cleanup closes only its presentation and releases COM objects. It never kills PowerPoint or calls Application.Quit because COM activation may share an existing user instance. A timeout may leave a read-only copied presentation open; inspect it manually. COM failure is an explicit pending gate. Fonts/substitutions remain unverified; static PNGs do not establish click playback, autoplay, repeat or Morph semantics.
+
+Package-only inventory (Python 3 standard library, separate from core Rust runtime):
+
+```sh
+python3 oracle/inventory.py /path/reference.pptx --output fixtures/private/inventory.json
+python3 -m unittest discover -s oracle -v
+```
+
+Inventory follows presentation relationships for order and retains raw slide, shape, timing, transition and notes XML. This preserves geometry, text run styles, crop, custom geometry, timing triggers/repeats/delays and asset relationships as inspectable evidence without interpreting their behavior. Namespace prefixes in serialized subtrees may differ; raw slide XML is retained separately. This trusted-local utility is not a hardened arbitrary-package parser or a runtime benchmark.
+
+Click recording is deliberately pending. Before implementation, validate slide-entry and click-event dispatch against visible numbered neutral effects, record a monotonic event schedule, capture frame timestamps/rate and sample expectations, and verify media/repeat cases. PowerPoint CreateVideo alone does not prove click scheduling. Required first recordings: slides 2–3, 9–12, 15–18, 21–22; all remaining slides before their reconstruction gate. Render comparison also requires installed-font inventory and calibrated geometry/line-break checks.
+
+Current frozen hash in run.ps1 reflects the user's explicitly authorized 2026-10-25 replacement; see slide-coverage.md for old/new provenance. Identity experiment is a generated neutral deck and excludes clipboard/group operations after those attempts failed in this environment. It tests tag retention and exposes duplicate-key behavior; it does not finalize the identity decision. Run identity.ps1 with a fresh ignored output directory, under the same bounded-job supervision as run.ps1 when unattended.
