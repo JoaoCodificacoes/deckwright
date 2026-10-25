@@ -1,0 +1,13 @@
+/target/
+/build/
+/fixtures/private/
+/examples/thesis/assets/*
+!/examples/thesis/assets/manifest.json
+/docs/reference/thesis-deck-inventory.json
+/bench/results/
+*.pptx
+*.pptm
+*.mp4
+.env
+.env.*
+!.env.example
