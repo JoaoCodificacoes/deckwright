@@ -254,6 +254,3 @@ Gate: a fresh install rebuilds the thesis when supplied its local assets and run
 Begin the independent Task 1, Task 2 and benchmark-preparation slices described in the parallel-agent execution plan. The first reviewable outcome is a frozen reference/coverage manifest, reproducible oracle instructions and a fast inspect/round-trip CLI. Continue to the first authored and animated demonstrator before expanding general compatibility. A performance miss or an unsupported reference feature is addressed in its owning task, not hidden by reducing fidelity.
 
 No broad framework release, binding work or custom rendering should displace the primary acceptance test: faithfully rebuild this exact deck, inspect its behavior as data, and meet the recorded runtime budgets.
-
-
-
