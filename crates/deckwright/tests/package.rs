@@ -139,3 +139,26 @@ fn rejects_each_resource_limit_and_crc_corruption() {
     bytes[pos + 16] ^= 1;
     assert!(Package::from_bytes(bytes, Limits::default()).is_err());
 }
+
+#[test]
+fn resolves_root_level_part_relationships() {
+    let rel=b"<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"r1\" Type=\"custom\" Target=\"data/target.bin\"/></Relationships>";
+    let p = Package::from_bytes(
+        fixture(&[
+            ("custom.xml", b"<custom/>"),
+            ("_rels/custom.xml.rels", rel),
+            ("data/target.bin", b"target"),
+        ]),
+        Limits::default(),
+    )
+    .unwrap();
+    assert_eq!(p.relationships()[0].source, "custom.xml");
+    assert_eq!(
+        p.relationships()[0].resolved_target.as_deref(),
+        Some("data/target.bin")
+    );
+    let output = p.to_bytes().unwrap();
+    let reopened = Package::from_bytes(output, Limits::default()).unwrap();
+    assert_eq!(reopened.part("_rels/custom.xml.rels"), Some(rel.as_slice()));
+    assert_eq!(reopened.relationships()[0].source, "custom.xml");
+}

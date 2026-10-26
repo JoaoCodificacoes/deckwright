@@ -221,8 +221,19 @@ impl Package {
             } else {
                 let (base, file) = name
                     .rsplit_once("/_rels/")
+                    .or_else(|| name.strip_prefix("_rels/").map(|file| ("", file)))
                     .ok_or_else(|| invalid(name, "invalid relationship part path"))?;
-                format!("{base}/{}", file.trim_end_matches(".rels"))
+                let file = file
+                    .strip_suffix(".rels")
+                    .ok_or_else(|| invalid(name, "invalid relationship part suffix"))?;
+                if file.is_empty() || file.contains('/') {
+                    return Err(invalid(name, "invalid relationship source filename"));
+                }
+                if base.is_empty() {
+                    file.to_owned()
+                } else {
+                    format!("{base}/{file}")
+                }
             };
             if !source.is_empty() && !parts.contains_key(&source) {
                 return Err(invalid(name, "relationship source missing"));
