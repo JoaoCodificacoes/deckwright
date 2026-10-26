@@ -105,34 +105,34 @@ pub fn check_package(package: &Package) -> CheckReport {
         let mut ids = BTreeSet::new();
         let mut morph_names = BTreeSet::new();
         for node in root.descendants("cNvPr") {
-            if let Some(id) = node.attrs.get("id") {
-                if !ids.insert(shape_key(id)) {
-                    report.add(
-                        "duplicate-shape-id",
-                        Some(name),
-                        Some(id),
-                        format!("Shape ID {id} appears more than once."),
-                        "Assign unique shape IDs within this slide and update references.",
-                    );
-                }
+            if let Some(id) = node.attrs.get("id")
+                && !ids.insert(shape_key(id))
+            {
+                report.add(
+                    "duplicate-shape-id",
+                    Some(name),
+                    Some(id),
+                    format!("Shape ID {id} appears more than once."),
+                    "Assign unique shape IDs within this slide and update references.",
+                );
             }
-            if let Some(label) = node.attrs.get("name").filter(|s| s.starts_with("!!")) {
-                if !morph_names.insert(label.clone()) {
-                    report.add(
-                        "duplicate-morph-name",
-                        Some(name),
-                        node.attrs.get("id").map(String::as_str),
-                        format!("Explicit Morph name {label} appears more than once."),
-                        "Use a unique explicit Morph name for each shape within this slide.",
-                    );
-                }
+            if let Some(label) = node.attrs.get("name").filter(|s| s.starts_with("!!"))
+                && !morph_names.insert(label.clone())
+            {
+                report.add(
+                    "duplicate-morph-name",
+                    Some(name),
+                    node.attrs.get("id").map(String::as_str),
+                    format!("Explicit Morph name {label} appears more than once."),
+                    "Use a unique explicit Morph name for each shape within this slide.",
+                );
             }
         }
         for target in root.descendants("spTgt") {
-            if let Some(id) = target.attrs.get("spid") {
-                if !ids.contains(&shape_key(id)) {
-                    report.add("missing-timing-target", Some(name), Some(id), format!("Timing references absent shape ID {id}."), "Point the timing target at an existing slide shape or remove the stale timing node.");
-                }
+            if let Some(id) = target.attrs.get("spid")
+                && !ids.contains(&shape_key(id))
+            {
+                report.add("missing-timing-target", Some(name), Some(id), format!("Timing references absent shape ID {id}."), "Point the timing target at an existing slide shape or remove the stale timing node.");
             }
         }
     }
