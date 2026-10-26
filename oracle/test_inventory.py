@@ -1,5 +1,7 @@
 import importlib.util
 import pathlib
+import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -23,6 +25,47 @@ class InventoryTest(unittest.TestCase):
             self.assertEqual(slide['shapes'][1]['text'], ['Neutral text'])
             self.assertIn('repeatCount="indefinite"', slide['timing_xml'])
             self.assertIn('x="2"', slide['shapes'][1]['xml'])
+
+class InventoryCliTest(unittest.TestCase):
+    def fixture(self, path):
+        with zipfile.ZipFile(path, 'w') as archive:
+            archive.writestr('ppt/presentation.xml', '<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:sldIdLst/><p:sldSz cx="100" cy="50"/></p:presentation>')
+
+    def run_cli(self, source, output):
+        return subprocess.run([sys.executable, '-B', str(pathlib.Path(__file__).with_name('inventory.py')), str(source), '--output', str(output)], capture_output=True, text=True)
+
+    def test_refuses_existing_outputs_and_source_aliases_without_changing_bytes(self):
+        for kind in ('same', 'existing', 'symlink', 'hardlink'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as folder:
+                source = pathlib.Path(folder) / 'neutral.pptx'
+                self.fixture(source)
+                before = source.read_bytes()
+                output = pathlib.Path(folder) / 'inventory.json'
+                if kind == 'same':
+                    output = source
+                elif kind == 'existing':
+                    output.write_bytes(b'keep existing artifact')
+                elif kind == 'symlink':
+                    output.symlink_to(source)
+                else:
+                    output.hardlink_to(source)
+                output_before = output.read_bytes()
+                result = self.run_cli(source, output)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(source.read_bytes(), before)
+                self.assertEqual(output.read_bytes(), output_before)
+                self.assertTrue(zipfile.is_zipfile(source))
+
+    def test_creates_new_output_without_changing_source(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = pathlib.Path(folder) / 'neutral.pptx'
+            self.fixture(source)
+            before = source.read_bytes()
+            output = pathlib.Path(folder) / 'new' / 'inventory.json'
+            result = self.run_cli(source, output)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(source.read_bytes(), before)
+            self.assertTrue(output.read_text().startswith('{'))
 
 if __name__ == '__main__':
     unittest.main()

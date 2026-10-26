@@ -30,3 +30,5 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File oracle/test_run.ps1
 ```
 
 These reject existing output directories and mismatched original/staged hashes before Office opens. The worker verifies the copied bytes actually opened, not only the supplied source. Missing Office is detected through real COM activation; all worker failures/timeouts produce failed metadata and a nonzero invocation. Timeout range is 1–3600 seconds. The parent requires worker metadata before reporting completion. Read-only automated opening does not independently exclude silent Office repair. Re-export the approved frozen copy rather than a Downloads file that may have changed; supply a generated package's own explicit hash when validating round trips.
+
+The inventory CLI refuses the input path, symlink aliases and every existing output artifact before writing. Output creation is exclusive, so an artifact appearing after the initial check is also protected. Use a new JSON path for every run; no overwrite option is provided.

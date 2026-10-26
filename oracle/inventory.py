@@ -50,5 +50,12 @@ if __name__ == '__main__':
     parser.add_argument('input', type=Path)
     parser.add_argument('--output', required=True, type=Path)
     args = parser.parse_args()
+    if args.output.resolve() == args.input.resolve():
+        parser.error('Output must differ from immutable input')
+    if args.output.exists() or args.output.is_symlink():
+        parser.error('Output already exists; choose a new path')
+    content = json.dumps(inventory(args.input), ensure_ascii=False, indent=2) + '\n'
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(inventory(args.input), ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    # Exclusive creation also protects an artifact created after the preflight check.
+    with args.output.open('x', encoding='utf-8') as output:
+        output.write(content)
