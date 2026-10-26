@@ -1,0 +1,27 @@
+name: Evidence utilities
+on:
+  pull_request:
+    paths:
+      - 'bench/**'
+      - 'oracle/**'
+      - '.github/workflows/evidence.yml'
+  push:
+    paths:
+      - 'bench/**'
+      - 'oracle/**'
+      - '.github/workflows/evidence.yml'
+permissions:
+  contents: read
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -B -m unittest discover -s bench -v
+      - run: python3 -B -m unittest discover -s oracle -v
+  powershell-guards:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - shell: pwsh
+        run: ./oracle/test_run.ps1
