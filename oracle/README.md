@@ -22,3 +22,11 @@ Inventory follows presentation relationships for order and retains raw slide, sh
 Click recording is deliberately pending. Before implementation, validate slide-entry and click-event dispatch against visible numbered neutral effects, record a monotonic event schedule, capture frame timestamps/rate and sample expectations, and verify media/repeat cases. PowerPoint CreateVideo alone does not prove click scheduling. Required first recordings: slides 2–3, 9–12, 15–18, 21–22; all remaining slides before their reconstruction gate. Render comparison also requires installed-font inventory and calibrated geometry/line-break checks.
 
 Current frozen hash in run.ps1 reflects the user's explicitly authorized 2026-10-25 replacement; see slide-coverage.md for old/new provenance. Identity experiment is a generated neutral deck and excludes clipboard/group operations after those attempts failed in this environment. It tests tag retention and exposes duplicate-key behavior; it does not finalize the identity decision. Run identity.ps1 with a fresh ignored output directory, under the same bounded-job supervision as run.ps1 when unattended.
+
+Guard regression tests (no private fixtures required):
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File oracle/test_run.ps1
+```
+
+These reject existing output directories and mismatched original/staged hashes before Office opens. The worker verifies the copied bytes actually opened, not only the supplied source. Missing Office is detected through real COM activation; all worker failures/timeouts produce failed metadata and a nonzero invocation. Timeout range is 1–3600 seconds. The parent requires worker metadata before reporting completion. Read-only automated opening does not independently exclude silent Office repair. Re-export the approved frozen copy rather than a Downloads file that may have changed; supply a generated package's own explicit hash when validating round trips.

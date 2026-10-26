@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory)][string]$Source,
     [Parameter(Mandatory)][string]$OutputDirectory,
     [string]$ExpectedSha256 = 'ee8cce03cf0201150fdd6f9c75f5d551538ed90d6ffae1c417e82b939e027e2b',
-    [int]$TimeoutSeconds = 120,
+    [ValidateRange(1, 3600)][int]$TimeoutSeconds = 120,
     [bool]$Worker = $false
 )
 $ErrorActionPreference = 'Stop'
@@ -10,19 +10,13 @@ $sourcePath = (Resolve-Path -LiteralPath $Source).Path
 $sourceHash = (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($sourceHash -ne $ExpectedSha256.ToLowerInvariant()) { throw 'Source SHA-256 mismatch' }
 $outputPath = [IO.Path]::GetFullPath($OutputDirectory)
-New-Item -ItemType Directory -Force -Path $outputPath | Out-Null
 $copyPath = Join-Path $outputPath 'reference.pptx'
 if ($sourcePath -eq $copyPath) { throw 'Output must differ from immutable source' }
 if (-not $Worker) {
-    if (Test-Path -LiteralPath $copyPath) { throw 'Use a fresh output directory' }
+    if (Test-Path -LiteralPath $outputPath) { throw 'Use a fresh output directory' }
+    New-Item -ItemType Directory -Path $outputPath | Out-Null
     Copy-Item -LiteralPath $sourcePath -Destination $copyPath
-    $registration = [Type]::GetTypeFromProgID('PowerPoint.Application')
     $metadata = [ordered]@{ schema_version=1; input_sha256=$sourceHash; script_sha256=(Get-FileHash -LiteralPath $PSCommandPath).Hash; utc=[DateTime]::UtcNow.ToString('o'); export_width=1920; export_height=1080; status='pending'; behavior='unverified'; clicks=@(); frame_rate=$null; font_substitutions='unverified' }
-    if ($null -eq $registration) {
-        $metadata.status = 'unavailable: PowerPoint.Application COM registration missing'
-        $metadata | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $outputPath 'oracle.json')
-        return
-    }
     # Isolated PowerShell worker; never terminate PowerPoint/user processes.
     $job = Start-Job -FilePath $PSCommandPath -ArgumentList @($sourcePath,$outputPath,$ExpectedSha256,$TimeoutSeconds,$true)
     try {
@@ -32,6 +26,7 @@ if (-not $Worker) {
         } else {
             Receive-Job $job -ErrorAction Stop
             if ($job.State -ne 'Completed') { throw 'Oracle worker failed' }
+            if (-not (Test-Path -LiteralPath (Join-Path $outputPath 'office.json'))) { throw 'Office metadata missing' }
             $metadata.status = 'static-export-complete'
         }
     } catch { $metadata.status = 'failed: ' + $_.Exception.Message }
@@ -39,6 +34,8 @@ if (-not $Worker) {
     if ($metadata.status -ne 'static-export-complete') { throw $metadata.status }
     return
 }
+$copyHash = (Get-FileHash -LiteralPath $copyPath -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($copyHash -ne $ExpectedSha256.ToLowerInvariant()) { throw 'Staged copy SHA-256 mismatch' }
 $app = $null
 $deck = $null
 try {
@@ -49,7 +46,7 @@ try {
         $slide = $deck.Slides.Item($i)
         $png = Join-Path $outputPath ('slide-{0:D2}.png' -f $i)
         $slide.Export($png, 'PNG', 1920, 1080)
-        if (-not (Test-Path -LiteralPath $png)) { throw "Export missing for slide $i" }
+        if (-not (Test-Path -LiteralPath $png) -or (Get-Item -LiteralPath $png).Length -eq 0) { throw "Export missing for slide $i" }
         $shapeEvidence=@()
         foreach ($shape in $slide.Shapes) {
             $text=$null; $font=$null
