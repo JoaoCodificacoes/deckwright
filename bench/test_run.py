@@ -4,6 +4,7 @@ import sys
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 import run
 
@@ -53,5 +54,19 @@ class RunnerTests(unittest.TestCase):
             before = (out/'manifest.json').read_bytes()
             self.assertNotEqual(subprocess.run(argv, capture_output=True).returncode, 0)
             self.assertEqual((out/'manifest.json').read_bytes(), before)
+
+    def test_timeout_with_zero_exit_never_summarized(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = pathlib.Path(d)/'result'
+            argv = ['run.py', '--result-dir', str(out), '--warmups', '0', '--samples', '1',
+                    '--cache-state', 'uncontrolled', '--filesystem-label', 'test', '--', 'neutral']
+            row = {'returncode': 0, 'timed_out': True, 'wall_ms': 102.9,
+                   'peak_rss_bytes': None, 'artifact_bytes': None, 'stdout_bytes': 0}
+            with mock.patch.object(sys, 'argv', argv), mock.patch.object(run, 'host', return_value={}), mock.patch.object(run, 'measure', return_value=row):
+                self.assertEqual(run.main(), 1)
+            report = json.loads((out/'manifest.json').read_text())
+            self.assertIn('failure', report)
+            self.assertNotIn('summary', report)
+            self.assertTrue(report['runs'][0]['timed_out'])
 
 if __name__ == '__main__': unittest.main()

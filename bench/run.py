@@ -115,7 +115,7 @@ def main():
             row = measure(argv, args.result_dir / f'run-{i:03}', args.timeout)
             row['warmup'] = i < args.warmups
             report['runs'].append(row)
-            if row['returncode'] != 0:
+            if row['timed_out'] or row['returncode'] != 0:
                 report['failure'] = f'run {i} failed; no latency summary'
                 break
         else:
