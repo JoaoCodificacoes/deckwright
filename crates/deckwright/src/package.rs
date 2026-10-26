@@ -298,18 +298,31 @@ impl Package {
     pub fn relationships(&self) -> &[Relationship] {
         &self.relationships
     }
-    pub fn to_bytes(&self) -> Result<Vec<u8>> {
-        let mut w = zip::ZipWriter::new(Cursor::new(Vec::new()));
-        let options = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated)
-            .compression_level(Some(6))
-            .last_modified_time(zip::DateTime::default())
-            .unix_permissions(0o644);
-        for (n, b) in &self.parts {
-            w.start_file(n, options)?;
-            w.write_all(b).map_err(|e| invalid(n, e.to_string()))?;
+    /// Atomically apply explicit part replacements/removals. The returned package
+    /// is fully revalidated; this package and all untouched bytes stay unchanged.
+    /// Required relationship and content-type edits are the caller's responsibility.
+    pub fn edited(
+        &self,
+        replacements: BTreeMap<String, Vec<u8>>,
+        removals: &BTreeSet<String>,
+        limits: Limits,
+    ) -> Result<Self> {
+        let mut parts = self.parts.clone();
+        for name in removals {
+            if !valid_name(name) || parts.remove(name).is_none() {
+                return Err(invalid(name, "cannot remove missing or invalid part"));
+            }
         }
-        Ok(w.finish()?.into_inner())
+        for (name, bytes) in replacements {
+            if !valid_name(&name) || removals.contains(&name) {
+                return Err(invalid(&name, "invalid or conflicting replacement"));
+            }
+            parts.insert(name, bytes);
+        }
+        Self::from_bytes(encode_parts(&parts)?, limits)
+    }
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
+        encode_parts(&self.parts)
     }
     pub fn write(&self, path: impl AsRef<Path>) -> Result<()> {
         let path = path.as_ref();
@@ -368,6 +381,20 @@ impl Package {
         let parts:Vec<_>=self.parts.iter().map(|(n,b)|serde_json::json!({"name":n,"bytes":b.len(),"sha256":hash(b),"content_type":self.content_types.get(n)})).collect();
         serde_json::json!({"schema_version":1,"package":{"bytes":self.input_bytes,"uncompressed_bytes":self.parts.values().map(Vec::len).sum::<usize>(),"part_count":self.parts.len(),"sha256":self.input_sha256},"parts":parts,"relationships":self.relationships,"slides":slides,"totals":totals,"slide_size":self.xml.get("ppt/presentation.xml").and_then(|n|n.descendants("sldSz").next()).map(|n|&n.attrs)})
     }
+}
+fn encode_parts(parts: &BTreeMap<String, Vec<u8>>) -> Result<Vec<u8>> {
+    let mut w = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated)
+        .compression_level(Some(6))
+        .last_modified_time(zip::DateTime::default())
+        .unix_permissions(0o644);
+    for (name, bytes) in parts {
+        w.start_file(name, options)?;
+        w.write_all(bytes)
+            .map_err(|e| invalid(name, e.to_string()))?;
+    }
+    Ok(w.finish()?.into_inner())
 }
 fn attr(n: &Node, name: &str) -> String {
     n.attrs.get(name).cloned().unwrap_or_default()

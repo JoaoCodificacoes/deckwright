@@ -10,8 +10,11 @@
 //! and 256 XML levels. Callers may supply smaller limits at the trust boundary.
 //! Inventory timing trees describe encoded OOXML, not validated playback.
 
+pub mod builder;
 pub mod error;
+pub mod model;
 pub mod package;
+pub mod units;
 pub mod xml;
 pub use error::{Error, Result};
 pub use package::{Limits, Package};
