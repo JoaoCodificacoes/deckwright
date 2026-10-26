@@ -97,6 +97,9 @@ def main():
     parser.add_argument('--filesystem-label', required=True, help='e.g. WSL-ext4, Windows-NTFS, UNC')
     parser.add_argument('--input', type=Path)
     parser.add_argument('--host-only', action='store_true')
+    parser.add_argument('--revision', default='unknown', help='measured source commit; record dirty tree separately')
+    parser.add_argument('--power-mode', default='unknown')
+    parser.add_argument('--competing-activity', default='unknown')
     parser.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if args.warmups < 0 or args.samples < 1 or args.timeout <= 0:
@@ -106,7 +109,9 @@ def main():
         parser.error('command argv required after --')
     args.result_dir.mkdir(parents=True, exist_ok=False)
     report = {'schema_version': 1, 'host': host(), 'cache_state': args.cache_state,
-              'filesystem_label': args.filesystem_label, 'warmups': args.warmups,
+              'filesystem_label': args.filesystem_label, 'revision': args.revision,
+              'power_mode': args.power_mode, 'competing_activity': args.competing_activity,
+              'warmups': args.warmups,
               'sample_count': args.samples, 'command': argv, 'advisory': True,
               'stage_breakdown': None, 'stage_breakdown_reason': 'CLI must expose internal stages; wall time is complete subprocess lifetime',
               'input': profile(args.input) if args.input else None, 'runs': []}
