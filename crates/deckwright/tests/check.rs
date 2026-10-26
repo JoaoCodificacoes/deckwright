@@ -69,3 +69,39 @@ fn import_failure_is_never_clean() {
     assert!(!report.imported);
     assert!(report.has_errors());
 }
+
+#[test]
+fn missing_relationship_target_is_import_error_report() {
+    let path = std::env::temp_dir().join(format!(
+        "dw-check-missing-target-{}.pptx",
+        std::process::id()
+    ));
+    let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    for (name, xml) in [
+        (
+            "[Content_Types].xml",
+            "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/></Types>",
+        ),
+        (
+            "_rels/.rels",
+            "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"r1\" Type=\"slide\" Target=\"missing.xml\"/></Relationships>",
+        ),
+    ] {
+        zip.start_file(name, zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(xml.as_bytes()).unwrap();
+    }
+    std::fs::write(&path, zip.finish().unwrap().into_inner()).unwrap();
+    let report = check_path(&path, Limits::default());
+    std::fs::remove_file(path).unwrap();
+    assert!(!report.imported);
+    assert!(report.has_errors());
+    assert_eq!(report.findings[0].rule, "relationship-import");
+}
+#[test]
+fn shape_ids_use_unsigned_integer_value_not_lexical_spelling() {
+    let report = check_package(&package("<p:cNvPr id=\"1\"/><p:cNvPr id=\"01\"/>"));
+    assert_eq!(report.findings[0].rule, "duplicate-shape-id");
+    let report = check_package(&package("<p:cNvPr id=\"1\"/><p:spTgt spid=\"01\"/>"));
+    assert!(report.findings.is_empty());
+}

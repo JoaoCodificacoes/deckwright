@@ -45,3 +45,73 @@ python3 bench/generate.py --source fixtures/private/reference.pptx --output buil
 The source must be a valid OPC presentation with internal targets resolvable without external fetching. The generator copies slide and notes parts into replica namespaces, remaps their internal relationships, appends presentation slide relationships/IDs and content-type overrides. Shape/timing IDs retain their slide-local scope. Notes and their backlinks are **cloned and remapped per replica**, not shared between cloned slides. Original XML/media parts are unchanged. Cloned slides share the original registered slide masters, layouts and themes; notes masters also remain shared. No unregistered master copies are created. The presentation XML receives a narrow byte insertion, preserving original namespace declarations and prefix-valued `mc:Ignorable`/`Requires` attributes. Shared mode preserves one original media set and excludes repeated media bytes from the structural denominator. The growing-media profile clones media too; valid PNG ancillary `tEXt` chunks with replica identifiers are inserted before IEND with correct lengths/CRC, retaining compressed image pixels. Non-PNG media (including MP4) retains original bytes, explicitly counted as repeated hashes. Thus this is a distinct growing-PNG-media workload, not a claim that all media hashes are unique.
 
 Validate XML, internal targets, relationship IDs, presentation IDs, slide-local shape IDs and slide relationship bindings after generation. Repeated inputs produce deterministic ZIP metadata/order. This is structural stress generation, not authored reconstruction; it does not prove Office playback or visual equivalence. Open/roundtrip checks and the oracle remain required. Reference structural mode targets no more than 15x runtime and 12x memory growth at 10x logical slide/object/effect workload. Compare per-profile total, XML and media bytes and object counts; unique-media growth has a separate denominator. No reference-derived fixture or media is committed.
+
+## Wave 2 bounded structural checks
+
+The library exposes `deckwright::check::check_path(path, Limits)` and
+`check_package(&Package)`. Reports identify `dw.check/1`, import status,
+error/warning severity, slide part, shape ID, message and repair hint.
+Import failures (including missing internal relationship targets) produce an
+error report with `imported: false`; structural rules do not run on failed
+imports. `has_errors()` allows callers to choose an error exit status.
+
+Implemented rules are duplicate slide-local shape IDs (error), missing encoded
+`p:spTgt/@spid` targets (error), and duplicate explicit `!!` Morph names
+within a slide (warning). Namespace lookalikes are excluded. Reports explicitly
+state that inherited/rotated/group bounds, Morph pairing and timing playback
+are unknown. These checks describe encoded package structure and do not
+certify visual quality, accessibility, geometry or Office playback.
+
+The runner accepts `--revision`, `--power-mode` and
+`--competing-activity` so evidence records its measurement context.
+Keep binary and harness SHA-256 values alongside the manifest when the harness
+differs from the measured application revision.
+## Reserved WSL measurement, 2026-10-26
+
+A coordinator reservation kept the three task workers free of Cargo builds and
+Office exports while six profiles ran serially, each with five warmups and fifty
+samples. Windows power plan was Balanced
+(`381b4222-f694-41f0-9685-ff5bb260df2e`); background OS activity and filesystem
+cache remained uncontrolled. Inputs, output and the direct release binary were
+on WSL2 ext4. These are local measurements, not native Windows qualification or
+a regression claim against a reviewed prior baseline.
+
+Measured production source was
+`2e4a87a663360fd7b3ac9756f95ec990c720913c` (the structural check module was
+present, but the measured commands were existing inspect/roundtrip paths).
+Only test and documentation edits occurred during measurement. Each private
+manifest stores the exact binary and harness hashes, input hash/bytes, complete
+argv, host details, raw child measurements and output sizes. Private raw evidence
+is under `build/bench/` and is excluded from Git.
+
+The frozen authorized source SHA-256 was
+`ee8cce03cf0201150fdd6f9c75f5d551538ed90d6ffae1c417e82b939e027e2b`.
+The 10x shared-media input has 250 slides, 9,760 shape elements, 5,330 effect
+preset nodes, 614 parts and 4,884,647 compressed bytes. The growing-PNG input
+has the same logical slide workload, 1,244 parts and 39,412,786 compressed bytes;
+691 of 700 media hashes are distinct. Non-PNG bytes remain shared by hash.
+
+| Profile | Operation | Median ms | p95 ms | Peak child RSS MiB |
+|---|---|---:|---:|---:|
+| Source, 25 slides | inspect + complete JSON | 186.60 | 205.32 | 78.75 |
+| Source, 25 slides | roundtrip | 247.51 | 293.81 | 46.73 |
+| Shared media, 250 slides | inspect + complete JSON | 1680.03 | 2046.40 | 681.75 |
+| Shared media, 250 slides | roundtrip | 796.10 | 920.22 | 294.27 |
+| Growing PNG media, 250 slides | inspect + complete JSON | 2009.46 | 2262.22 | 732.82 |
+| Growing PNG media, 250 slides | roundtrip | 2328.17 | 3204.46 | 377.20 |
+
+The 25-slide complete inventory meets its 250 ms p95 and 128 MiB reference
+budgets. Shared-media 10x inventory grows 9.97x in p95 latency and 8.66x in
+peak RSS, meeting the separate 15x/12x structural growth gates. The actual
+250-slide inventory still uses 681.75 MiB: eager XML trees and full inventory
+serialization are material limits. The growing-PNG profile is reported
+separately because its media byte denominator also grows. No budgets were
+relaxed.
+
+All 330 launches exited successfully without timeouts. Roundtrip results are
+preparation evidence, not authored-build results. Check latency, warm state,
+Morph diff and full authored build remain unqualified. Stage breakdown remains
+unavailable; these measurements do not isolate XML parsing, JSON encoding or
+compression. No reviewed baseline was available for regression qualification.
+Strict OOXML namespace rules and full XML schema validation are also outside
+the current structural checker.
