@@ -78,6 +78,7 @@ pub fn check_path(path: impl AsRef<Path>, limits: Limits) -> CheckReport {
 pub fn check_package(package: &Package) -> CheckReport {
     let mut report = CheckReport { schema: "dw.check/1".into(), schema_version: 1, imported: true, findings: vec![],
         limitations: vec![
+            "Only transitional PresentationML namespace rules are checked; Strict OOXML and full schema validation are unknown.".into(),
             "Bounds unknown: inherited, rotated and grouped geometry is not resolved; no bounds verdict is emitted.".into(),
             "Morph checks cover duplicate explicit !! names within each slide, not matching or playback.".into(),
             "Timing checks cover encoded spTgt shape IDs only; timing semantics and playback are unknown.".into(),
@@ -105,7 +106,7 @@ pub fn check_package(package: &Package) -> CheckReport {
         let mut morph_names = BTreeSet::new();
         for node in root.descendants("cNvPr") {
             if let Some(id) = node.attrs.get("id") {
-                if !ids.insert(id.clone()) {
+                if !ids.insert(shape_key(id)) {
                     report.add(
                         "duplicate-shape-id",
                         Some(name),
@@ -129,11 +130,19 @@ pub fn check_package(package: &Package) -> CheckReport {
         }
         for target in root.descendants("spTgt") {
             if let Some(id) = target.attrs.get("spid") {
-                if !ids.contains(id) {
+                if !ids.contains(&shape_key(id)) {
                     report.add("missing-timing-target", Some(name), Some(id), format!("Timing references absent shape ID {id}."), "Point the timing target at an existing slide shape or remove the stale timing node.");
                 }
             }
         }
     }
     report
+}
+
+fn shape_key(id: &str) -> String {
+    // OOXML drawing IDs have unsigned-integer value semantics.
+    id.trim()
+        .parse::<u32>()
+        .map(|value| value.to_string())
+        .unwrap_or_else(|_| id.to_owned())
 }
