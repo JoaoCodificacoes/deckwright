@@ -6,6 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 import posixpath as pp
+import re
 import struct
 import xml.etree.ElementTree as ET
 import zipfile
@@ -39,11 +40,14 @@ def validate(path):
         if len(names) != len(set(names)): raise ValueError('duplicate part names')
         parts = {n: z.read(n) for n in names}
     slides = 0
+    shapes = effects = 0
     for name, data in parts.items():
         if name.endswith(('.xml', '.rels')):
             root = ET.fromstring(data)
             slides += root.tag == f'{{{P}}}sld'
             if root.tag == f'{{{P}}}sld':
+                shapes += sum(e.tag in {f'{{{P}}}{kind}' for kind in ('sp', 'pic', 'cxnSp', 'grpSp', 'graphicFrame')} for e in root.iter())
+                effects += sum('presetClass' in e.attrib for e in root.iter())
                 shape_ids = [e.get('id') for e in root.iter(f'{{{P}}}cNvPr')]
                 if len(shape_ids) != len(set(shape_ids)):
                     raise ValueError(f'duplicate slide-local shape IDs in {name}')
@@ -66,7 +70,7 @@ def validate(path):
         if len(ids) != len(set(ids)): raise ValueError('duplicate presentation slide IDs')
         if len(ids) != slides: raise ValueError('presentation/slide count mismatch')
     media = [v for k, v in parts.items() if '/media/' in k]
-    return {'slides': slides, 'parts': len(parts), 'bytes': Path(path).stat().st_size,
+    return {'slides': slides, 'shape_elements': shapes, 'effect_preset_nodes': effects, 'parts': len(parts), 'bytes': Path(path).stat().st_size,
             'uncompressed_bytes': sum(map(len, parts.values())), 'media_parts': len(media),
             'media_bytes': sum(map(len, media)), 'distinct_media_hashes': len({hashlib.sha256(b).digest() for b in media}),
             'validation': 'XML well-formed; unique package/presentation/relationship IDs; all internal relationship targets exist; not Office playback validation'}
@@ -91,11 +95,13 @@ def expand(source, output, factor=10, unique_media=False):
     by_id = {e.get('Id'): e for e in pres_rels}
     next_id = max(int(e.get('id')) for e in old_slides) + 1
     used_rids = set(by_id)
+    added_slides = []
     for replica in range(1, factor):
-        # Replicate the entire ppt dependency graph, retaining shared media only.
+        # Clone slide-owned parts, sharing registered masters/layouts/themes.
+        # Cloning unregistered masters can make Office repair the package.
         mapping = {n: f'ppt/bench{replica}/' + n[4:] for n in original
-                   if n.startswith('ppt/') and n not in ('ppt/presentation.xml', 'ppt/_rels/presentation.xml.rels')
-                   and (unique_media or not n.startswith('ppt/media/'))}
+                   if n.startswith(('ppt/slides/', 'ppt/notesSlides/'))
+                   or (unique_media and n.startswith('ppt/media/'))}
         for old, new in mapping.items():
             data = original[old]
             if old.endswith('.rels'):
@@ -119,9 +125,17 @@ def expand(source, output, factor=10, unique_media=False):
             while rid in used_rids: rid += '_'
             used_rids.add(rid)
             ET.SubElement(pres_rels, f'{{{PKG}}}Relationship', {'Id': rid, 'Type': rel.get('Type'), 'Target': pp.relpath(mapping[target], 'ppt')})
-            ET.SubElement(slide_list, f'{{{P}}}sldId', {'id': str(next_id), f'{{{R}}}id': rid})
+            added_slides.append(f'<p:sldId xmlns:p="{P}" xmlns:r="{R}" id="{next_id}" r:id="{rid}"/>'.encode())
             next_id += 1
-    parts['ppt/presentation.xml'] = xml(presentation)
+    # Preserve namespace declarations whose prefixes occur only in mc:Ignorable
+    # or Requires values. ElementTree cannot round-trip that namespace context.
+    pattern = rb'</(?:[A-Za-z_][\w.-]*:)?sldIdLst\s*>'
+    matches = list(re.finditer(pattern, original['ppt/presentation.xml']))
+    if len(matches) != 1:
+        raise ValueError('one explicit presentation sldIdLst closing tag required')
+    offset = matches[0].start()
+    data = original['ppt/presentation.xml']
+    parts['ppt/presentation.xml'] = data[:offset] + b''.join(added_slides) + data[offset:]
     parts['ppt/_rels/presentation.xml.rels'] = xml(pres_rels)
     parts['[Content_Types].xml'] = xml(content)
     write(output, parts)
