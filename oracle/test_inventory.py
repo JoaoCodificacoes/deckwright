@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import pathlib
 import subprocess
 import sys
@@ -65,7 +66,7 @@ class InventoryCliTest(unittest.TestCase):
             result = self.run_cli(source, output)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(source.read_bytes(), before)
-            self.assertTrue(output.read_text().startswith('{'))
+            self.assertEqual(json.loads(output.read_text())['schema_version'], 1)
 
 if __name__ == '__main__':
     unittest.main()
