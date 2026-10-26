@@ -1,0 +1,287 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deckwright.dev/schemas/inventory-v1.json",
+  "title": "Deckwright package structural inventory v1",
+  "description": "Encoded structure, not evaluated playback. Namespace-qualified timing trees retain unknown elements. Internal part names are relative canonical package names. External relationships are reported and never fetched.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "package": {
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "uncompressed_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "part_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "bytes",
+        "uncompressed_bytes",
+        "part_count",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "parts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "content_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "bytes",
+          "sha256",
+          "content_type"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "relationships": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "relationship_type": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "target_mode": {
+            "enum": [
+              "Internal",
+              "External"
+            ]
+          },
+          "resolved_target": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "source",
+          "id",
+          "relationship_type",
+          "target",
+          "target_mode",
+          "resolved_target"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "slides": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/slide"
+      }
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "slide_size": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "package",
+    "parts",
+    "relationships",
+    "slides",
+    "totals",
+    "slide_size"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "xml_node": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "attrs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/xml_node"
+          }
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "namespace",
+        "attrs",
+        "children",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "slide": {
+      "type": "object",
+      "properties": {
+        "slide": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "part": {
+          "type": "string"
+        },
+        "counts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "effects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "timing_nodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "timing_targets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "transitions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "attributes": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "children": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "attributes",
+              "children"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "text": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "timing": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/xml_node"
+          }
+        },
+        "morph_names": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "slide",
+        "part",
+        "counts",
+        "effects",
+        "timing_nodes",
+        "timing_targets",
+        "transitions",
+        "text",
+        "timing",
+        "morph_names"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
