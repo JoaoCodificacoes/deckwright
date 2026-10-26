@@ -1,0 +1,10 @@
+{
+  "slides": 1,
+  "parts": 7,
+  "bytes": 1902,
+  "uncompressed_bytes": 1916,
+  "media_parts": 1,
+  "media_bytes": 68,
+  "distinct_media_hashes": 1,
+  "validation": "XML well-formed; unique package/presentation/relationship IDs; all internal relationship targets exist; not Office playback validation"
+}
