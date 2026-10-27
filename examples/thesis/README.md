@@ -30,6 +30,15 @@ numeric IDs, geometry/crop and media hashes. Keys are additionally written into 
 custom OOXML extension. That extension's PowerPoint save survival is provisional;
 the sidecar remains authoritative until the sync milestone validates it.
 
+`slides[].placements` is regenerated recursively from the current typed objects
+on every build, including current numeric IDs, transforms, picture relationships,
+crops and Morph names. `slides[].source_placements` separately preserves the
+original extraction provenance by stable key; it has no `generated_id` claim.
+New keys have a null source ID, while removed source objects remain in provenance.
+Enum values and numeric domains in the supported model are checked before XML
+emission; invalid text wrapping, font sizes, line widths and similar attributes
+return an error identifying the authored source key.
+
 This milestone deliberately omits transitions and timing, displaying all static
 objects. It preserves source content quirks (including field text and document
 form labels); potential defects require review. PowerPoint/font/line-break

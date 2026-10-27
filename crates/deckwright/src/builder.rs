@@ -435,16 +435,38 @@ fn validate(slide: &Slide) -> Result<()> {
                     visit(children, keys, ids, depth + 1)?;
                 }
                 ObjectKind::Shape {
-                    properties, text, ..
+                    properties,
+                    text,
+                    placeholder,
+                    style,
+                    ..
                 } => {
                     check_properties(properties, &o.key)?;
-                    if let Some(text) = text
-                        && text.paragraphs.is_empty()
-                    {
-                        return Err(authored_error(
+                    if let Some(text) = text {
+                        check_text(text, &o.key)?;
+                    }
+                    if let Some(style) = style {
+                        check_style(style, &o.key)?;
+                    }
+                    if let Some(ph) = placeholder {
+                        member(
+                            &ph.kind,
+                            &[
+                                "title", "body", "ctrTitle", "subTitle", "dt", "sldNum", "ftr",
+                                "hdr", "obj", "chart", "tbl", "clipArt", "dgm", "media", "sldImg",
+                                "pic",
+                            ],
                             &o.key,
-                            "text body requires at least one paragraph",
-                        ));
+                            "placeholder type",
+                        )?;
+                        if let Some(size) = &ph.size {
+                            member(
+                                size,
+                                &["full", "half", "quarter"],
+                                &o.key,
+                                "placeholder size",
+                            )?;
+                        }
                     }
                 }
                 ObjectKind::Picture {
@@ -457,7 +479,14 @@ fn validate(slide: &Slide) -> Result<()> {
                         return Err(authored_error(&o.key, "picture requires relationship ID"));
                     }
                 }
-                ObjectKind::Connector { properties, .. } => check_properties(properties, &o.key)?,
+                ObjectKind::Connector {
+                    properties, style, ..
+                } => {
+                    check_properties(properties, &o.key)?;
+                    if let Some(style) = style {
+                        check_style(style, &o.key)?;
+                    }
+                }
             }
         }
         Ok(())
@@ -540,19 +569,175 @@ fn validate(slide: &Slide) -> Result<()> {
     Ok(())
 }
 fn check_transform(t: &Transform, key: &str) -> Result<()> {
-    if t.width.0 < 0 || t.height.0 < 0 {
-        return Err(authored_error(key, "negative extent"));
+    for value in [t.x.0, t.y.0] {
+        range(
+            value,
+            -27273042329600,
+            27273042316900,
+            key,
+            "transform coordinate",
+        )?;
+    }
+    for value in [t.width.0, t.height.0] {
+        range(value, 0, i32::MAX.into(), key, "transform extent")?;
+    }
+    if let Some(c) = &t.child {
+        for value in [c.x.0, c.y.0] {
+            range(
+                value,
+                -27273042329600,
+                27273042316900,
+                key,
+                "child coordinate",
+            )?;
+        }
+        for value in [c.width.0, c.height.0] {
+            range(value, 0, i32::MAX.into(), key, "child extent")?;
+        }
     }
     Ok(())
 }
 fn check_properties(p: &Properties, key: &str) -> Result<()> {
     if let Some(t) = &p.transform {
         check_transform(t, key)?;
+        if t.child.is_some() {
+            return Err(authored_error(
+                key,
+                "child coordinate space is supported only on groups",
+            ));
+        }
     }
     if let Some(g) = &p.geometry
         && !["rect", "roundRect", "line"].contains(&g.preset.as_str())
     {
         return Err(authored_error(key, "unsupported geometry preset"));
+    }
+    if let Some(width) = p.line.as_ref().and_then(|l| l.width) {
+        range(width.0, 0, 20116800, key, "line width")?;
+    }
+    if let Some(effects) = &p.effects {
+        for shadow in effects {
+            range(shadow.blur.0, 0, i32::MAX.into(), key, "shadow blur")?;
+            range(
+                shadow.distance.0,
+                0,
+                i32::MAX.into(),
+                key,
+                "shadow distance",
+            )?;
+            range(
+                shadow.direction.into(),
+                0,
+                21599999,
+                key,
+                "shadow direction",
+            )?;
+            member(
+                &shadow.alignment,
+                &["tl", "t", "tr", "l", "ctr", "r", "bl", "b", "br"],
+                key,
+                "shadow alignment",
+            )?;
+        }
+    }
+    Ok(())
+}
+
+// Attribute domains follow the official Open-XML-SDK DrawingML/PresentationML
+// schema validators. Integer model fields already constrain angles, percentages,
+// IDs and connection indices to their corresponding signed/unsigned 32-bit types.
+fn range(value: i64, min: i64, max: i64, key: &str, field: &str) -> Result<()> {
+    if !(min..=max).contains(&value) {
+        return Err(authored_error(
+            key,
+            &format!("{field} outside {min}..={max}: {value}"),
+        ));
+    }
+    Ok(())
+}
+fn member(value: &str, allowed: &[&str], key: &str, field: &str) -> Result<()> {
+    if !allowed.contains(&value) {
+        return Err(authored_error(
+            key,
+            &format!("unsupported {field}: {value}"),
+        ));
+    }
+    Ok(())
+}
+fn check_style(style: &StyleReferences, key: &str) -> Result<()> {
+    for reference in [&style.line, &style.fill, &style.effect] {
+        if reference.index.parse::<u32>().is_err() {
+            return Err(authored_error(
+                key,
+                "style matrix index must be an unsigned 32-bit integer",
+            ));
+        }
+    }
+    member(
+        &style.font.index,
+        &["major", "minor", "none"],
+        key,
+        "font style index",
+    )
+}
+fn check_text(text: &TextBody, key: &str) -> Result<()> {
+    if text.paragraphs.is_empty() {
+        return Err(authored_error(
+            key,
+            "text body requires at least one paragraph",
+        ));
+    }
+    let body = &text.body;
+    if let Some(wrap) = &body.wrap {
+        member(wrap, &["none", "square"], key, "text wrap")?;
+    }
+    if let Some(anchor) = &body.anchor {
+        member(anchor, &["t", "ctr", "b"], key, "text anchor")?;
+    }
+    for inset in [body.left, body.right, body.top, body.bottom]
+        .into_iter()
+        .flatten()
+    {
+        range(inset.0, i32::MIN.into(), i32::MAX.into(), key, "text inset")?;
+    }
+    for paragraph in &text.paragraphs {
+        if let Some(p) = &paragraph.properties {
+            if let Some(alignment) = &p.alignment {
+                member(
+                    alignment,
+                    &["l", "ctr", "r", "just", "justLow", "dist", "thaiDist"],
+                    key,
+                    "paragraph alignment",
+                )?;
+            }
+            for spacing in [p.space_before, p.space_after].into_iter().flatten() {
+                range(spacing.into(), 0, 158400, key, "paragraph spacing")?;
+            }
+        }
+        for run in &paragraph.runs {
+            if let Some(size) = run.style.as_ref().and_then(|s| s.size) {
+                range(size.into(), 100, 400000, key, "font size")?;
+            }
+            if let Some(field) = &run.field {
+                let bytes = field.id.as_bytes();
+                let valid = bytes.len() == 38
+                    && bytes[0] == b'{'
+                    && bytes[37] == b'}'
+                    && bytes.iter().enumerate().skip(1).take(36).all(|(i, b)| {
+                        if [9, 14, 19, 24].contains(&i) {
+                            *b == b'-'
+                        } else {
+                            b.is_ascii_digit() || (b'A'..=b'F').contains(b)
+                        }
+                    });
+                if !valid {
+                    return Err(authored_error(
+                        key,
+                        "field id must be a braced uppercase GUID",
+                    ));
+                }
+            }
+        }
     }
     Ok(())
 }
