@@ -1,6 +1,123 @@
 use deckwright::{builder::compile_slide, model::Slide, units::Emu};
 
 #[test]
+fn rejects_invalid_supported_ooxml_attribute_domains() {
+    use serde_json::{Value, json};
+    fn merge(target: &mut Value, patch: Value) {
+        if let (Some(target), Some(patch)) = (target.as_object_mut(), patch.as_object()) {
+            for (key, value) in patch {
+                merge(target.entry(key).or_insert(Value::Null), value.clone());
+            }
+        } else {
+            *target = patch;
+        }
+    }
+    let baseline: Value = serde_json::from_str(include_str!(
+        "../../../fixtures/generated/authored-slide.json"
+    ))
+    .unwrap();
+    let color = json!({"type":"rgb","value":"112233"});
+    let reference = json!({"index":"1","color":color});
+    let style = json!({"line":reference,"fill":reference,"effect":reference,"font":{"index":"minor","color":color}});
+    let shadow = json!({"blur":0,"distance":0,"direction":0,"alignment":"ctr","rotate_with_shape":true,"color":color});
+    let mut cases = vec![
+        ("wrap", json!({"text":{"body":{"wrap":"banana"}}})),
+        ("anchor", json!({"text":{"body":{"anchor":"banana"}}})),
+        ("inset", json!({"text":{"body":{"left":2147483648_i64}}})),
+        (
+            "alignment",
+            json!({"text":{"paragraphs":[{"properties":{"alignment":"banana"}}]}}),
+        ),
+        (
+            "spacing",
+            json!({"text":{"paragraphs":[{"properties":{"space_before":-1}}]}}),
+        ),
+        (
+            "spacing",
+            json!({"text":{"paragraphs":[{"properties":{"space_after":158401}}]}}),
+        ),
+        (
+            "font size",
+            json!({"text":{"paragraphs":[{"runs":[{"text":"x","style":{"size":99}}]}]}}),
+        ),
+        (
+            "font size",
+            json!({"text":{"paragraphs":[{"runs":[{"text":"x","style":{"size":400001}}]}]}}),
+        ),
+        (
+            "field id",
+            json!({"text":{"paragraphs":[{"runs":[{"text":"x","field":{"id":"not-a-guid","kind":"slidenum"}}]}]}}),
+        ),
+        ("line width", json!({"properties":{"line":{"width":-1}}})),
+        (
+            "line width",
+            json!({"properties":{"line":{"width":20116801}}}),
+        ),
+        (
+            "coordinate",
+            json!({"properties":{"transform":{"x":27273042316901_i64}}}),
+        ),
+        (
+            "extent",
+            json!({"properties":{"transform":{"width":2147483648_i64}}}),
+        ),
+        (
+            "child coordinate",
+            json!({"properties":{"transform":{"child":{"x":0,"y":0,"width":1,"height":1}}}}),
+        ),
+        ("placeholder type", json!({"placeholder":{"kind":"banana"}})),
+        (
+            "placeholder size",
+            json!({"placeholder":{"kind":"body","size":"banana"}}),
+        ),
+    ];
+    for field in ["line", "fill", "effect", "font"] {
+        let mut value = style.clone();
+        value[field]["index"] = json!("banana");
+        cases.push(("style index", json!({"style":value})));
+    }
+    for (field, value) in [
+        ("blur", json!(-1)),
+        ("distance", json!(2147483648_i64)),
+        ("direction", json!(-1)),
+        ("direction", json!(21600000)),
+        ("alignment", json!("banana")),
+    ] {
+        let mut s = shadow.clone();
+        s[field] = value;
+        cases.push(("shadow", json!({"properties":{"effects":[s]}})));
+    }
+    for (label, patch) in cases {
+        let mut value = baseline.clone();
+        merge(&mut value["objects"][0]["kind"], patch);
+        let slide: Slide = serde_json::from_value(value).unwrap();
+        let error = compile_slide(&slide).expect_err(label).to_string();
+        assert!(error.contains("heading"), "{label}: {error}");
+    }
+}
+
+#[test]
+fn accepts_supported_ooxml_boundary_values() {
+    use serde_json::json;
+    let color = json!({"type":"rgb","value":"112233","alpha":100000});
+    let reference = json!({"index":"4294967295","color":color});
+    let mut value: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../fixtures/generated/authored-slide.json"
+    ))
+    .unwrap();
+    let kind = &mut value["objects"][0]["kind"];
+    kind["placeholder"] = json!({"kind":"clipArt","index":4294967295_u32,"size":"full"});
+    kind["style"] = json!({"line":reference,"fill":reference,"effect":reference,"font":{"index":"none","color":color}});
+    kind["properties"]["transform"] = json!({"x":-27273042329600_i64,"y":27273042316900_i64,"width":2147483647,"height":0,"rotation":-2147483648_i64});
+    kind["properties"]["line"] = json!({"width":20116800});
+    kind["properties"]["effects"] = json!([{"blur":2147483647,"distance":0,"direction":21599999,"alignment":"br","rotate_with_shape":false,"color":color}]);
+    kind["text"]["body"] =
+        json!({"wrap":"none","anchor":"b","left":-2147483648_i64,"right":2147483647});
+    kind["text"]["paragraphs"] = json!([{"properties":{"alignment":"thaiDist","space_before":0,"space_after":158400},"runs":[{"text":"field","field":{"id":"{01234567-89AB-CDEF-0123-456789ABCDEF}","kind":"slidenum"},"style":{"size":100}},{"text":"large","style":{"size":400000}}]}]);
+    assert!(compile_slide(&serde_json::from_value(value).unwrap()).is_ok());
+}
+
+#[test]
 fn emu_conversion_rounds_at_explicit_boundary() {
     assert_eq!(Emu::from_inches(1.0).unwrap().0, 914400);
     assert_eq!(Emu::from_points(1.0).unwrap().0, 12700);

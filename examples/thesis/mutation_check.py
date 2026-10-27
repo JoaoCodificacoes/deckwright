@@ -41,6 +41,7 @@ def check(binary, source):
         slide = json.loads(path.read_text(encoding="utf-8"))
         target = next(o for o in slide["objects"] if o["key"] == "s01/object-3")
         old_target = copy.deepcopy(target)
+        target["id"] = 999
         run_data = target["kind"]["text"]["paragraphs"][0]["runs"][0]
         run_data["text"] += "!"  # a one-character source change
         target["kind"]["properties"]["transform"]["x"] += 12700  # one point
@@ -61,15 +62,28 @@ def check(binary, source):
                 x = int(authored.find("p:spPr/a:xfrm/a:off", ns).attrib["x"])
                 if text != run_data["text"] or x != old_target["kind"]["properties"]["transform"]["x"] + 12700:
                     raise ValueError("intended native text/geometry mutation missing")
-        if changed_objects != ["3"]:
+        if changed_objects != ["999"]:
             raise ValueError(f"mutation changed wrong native objects: {changed_objects}")
+        baseline_map = json.loads((root / "baseline.manifest.json").read_text())
+        mutated_map = json.loads((root / "mutated.manifest.json").read_text())
+        placements = mutated_map["slides"][0]["placements"]
+        placement = next(p for p in placements if p["key"] == target["key"])
+        authored_target = next(o for o in mutated_map["authored_static_source"][0]["objects"] if o["key"] == target["key"])
+        if placement["generated_id"] != 999 or placement["transform"] != authored_target["kind"]["properties"]["transform"]:
+            raise ValueError("current sidecar identity/placement is stale after typed edits")
+        provenance = mutated_map["slides"][0]["source_placements"]
+        original = next(p for p in provenance if p["key"] == target["key"])
+        if original["source_id"] != old_target["id"] or original["transform"] != old_target["kind"]["properties"]["transform"]:
+            raise ValueError("original source provenance was changed by authoring")
+        if baseline_map["assets"] != mutated_map["assets"] or baseline_map["slides"][1:] != mutated_map["slides"][1:]:
+            raise ValueError("unrelated sidecar source/asset/generated mappings changed")
         # Existing PPTX and sidecar outputs must survive a repeated invocation.
         sidecar = root / "baseline.manifest.json"
         old_sidecar = sidecar.read_bytes()
         repeated = subprocess.run([str(binary), str(source), str(root / "baseline.pptx")], capture_output=True)
         if repeated.returncode == 0 or (root / "baseline.pptx").read_bytes() != original_bytes or sidecar.read_bytes() != old_sidecar:
             raise ValueError("existing output protection failed")
-        report = {"deterministic": True, "baseline_sha256": hashlib.sha256(original_bytes).hexdigest(), "changed_parts": changed_parts, "changed_native_objects": changed_objects, "text_mutation": "one character", "layout_mutation_emu": 12700, "all_unrelated_template_media_native_objects_unchanged": True, "existing_outputs_protected": True}
+        report = {"deterministic": True, "baseline_sha256": hashlib.sha256(original_bytes).hexdigest(), "changed_parts": changed_parts, "changed_native_objects": changed_objects, "text_mutation": "one character", "layout_mutation_emu": 12700, "current_manifest_matches_generated_id_and_geometry": True, "source_provenance_preserved": True, "unrelated_manifest_data_unchanged": True, "all_unrelated_template_media_native_objects_unchanged": True, "existing_outputs_protected": True}
         print(json.dumps(report, indent=2))
 
 
