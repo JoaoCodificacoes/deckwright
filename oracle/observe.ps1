@@ -18,18 +18,16 @@ if (-not $Worker) {
     if (Test-Path -LiteralPath $outputPath) { throw 'Use a fresh output directory' }
     New-Item -ItemType Directory -Path $outputPath | Out-Null
     if ($Source) { Copy-Item -LiteralPath $Source -Destination (Join-Path $outputPath 'reference.pptx') }
-    $job=Start-Job -FilePath $PSCommandPath -ArgumentList @($outputPath,$TimeoutSeconds,$true,$ScriptPath,$Source,$ExpectedSha256,$Slides,$MaximumClicksPerSlide)
+    . (Join-Path $PSScriptRoot 'worker.ps1')
     $supervision=[ordered]@{status='pending';timeout_seconds=$TimeoutSeconds;cleanup='Only owned slideshow/presentation; no Application.Quit or process termination'}
     try {
-        if ($null -eq (Wait-Job $job -Timeout $TimeoutSeconds)) { Stop-Job $job; throw 'Observation timeout; no Office process terminated; copied fixture may remain open' }
-        Receive-Job $job -ErrorAction Stop
-        if ($job.State -ne 'Completed') { throw 'Observation worker failed' }
+        Invoke-OracleWorker -ScriptPath $PSCommandPath -Parameters @{OutputDirectory=$outputPath;TimeoutSeconds=$TimeoutSeconds;Worker=$true;ScriptPath=$ScriptPath;Source=$Source;ExpectedSha256=$ExpectedSha256;Slides=$Slides;MaximumClicksPerSlide=$MaximumClicksPerSlide} -OutputDirectory $outputPath -TimeoutSeconds $TimeoutSeconds -CompletionFile 'observation.json' -AllowedStatuses @('observed-click-state')
         if (-not (Test-Path (Join-Path $outputPath 'observation.json'))) { throw 'Observation metadata missing' }
         $result=Get-Content (Join-Path $outputPath 'observation.json') -Raw | ConvertFrom-Json
         if ($result.status -ne 'observed-click-state') { throw 'Observation did not complete successfully' }
         $supervision.status='completed'
     } catch { $supervision.status='failed';$supervision.error=$_.Exception.Message;throw }
-    finally { Remove-Job $job -Force; $supervision | ConvertTo-Json | Set-Content (Join-Path $outputPath 'supervision.json') }
+    finally { $supervision | ConvertTo-Json | Set-Content (Join-Path $outputPath 'supervision.json') }
     return
 }
 $app=$null; $deck=$null; $show=$null

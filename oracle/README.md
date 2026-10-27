@@ -1,5 +1,7 @@
 # PowerPoint reference oracle
 
+Supervision uses `worker.ps1` for the export, identity and observation harnesses. It starts a hidden, owned PowerShell child with encoded JSON arguments and waits for a bounded interval. On timeout it terminates only that exact child process, waits at most two more seconds and writes `worker-process.json`; no process-tree kill, PowerPoint termination or Application.Quit occurs. An interrupted COM call can leave an owned presentation open and cleanup is explicitly unverified. A zero child exit also requires the caller's completion JSON and accepted status; missing or failed completion metadata is rejected. The former Start-Job/Stop-Job approach was observed hanging on blocked COM, so it is no longer used. `pwsh -NoProfile -ExecutionPolicy Bypass -File oracle/test_worker.ps1` verifies success/argument fidelity, zero-exit metadata guards and a sleeping neutral child timeout without invoking Office.
+
 Neutral scheduled-dispatch calibration (Windows PowerShell 7):
 
 ```powershell
