@@ -18,19 +18,13 @@ if (-not $Worker) {
     Copy-Item -LiteralPath $sourcePath -Destination $copyPath
     $metadata = [ordered]@{ schema_version=1; input_sha256=$sourceHash; script_sha256=(Get-FileHash -LiteralPath $PSCommandPath).Hash; utc=[DateTime]::UtcNow.ToString('o'); export_width=1920; export_height=1080; status='pending'; behavior='unverified'; clicks=@(); frame_rate=$null; font_substitutions='unverified' }
     # Isolated PowerShell worker; never terminate PowerPoint/user processes.
-    $job = Start-Job -FilePath $PSCommandPath -ArgumentList @($sourcePath,$outputPath,$ExpectedSha256,$TimeoutSeconds,$true)
+    . (Join-Path $PSScriptRoot 'worker.ps1')
     try {
-        if ($null -eq (Wait-Job $job -Timeout $TimeoutSeconds)) {
-            Stop-Job $job
-            $metadata.status = 'timeout: worker stopped; no PowerPoint process terminated'
-        } else {
-            Receive-Job $job -ErrorAction Stop
-            if ($job.State -ne 'Completed') { throw 'Oracle worker failed' }
+        Invoke-OracleWorker -ScriptPath $PSCommandPath -Parameters @{Source=$sourcePath;OutputDirectory=$outputPath;ExpectedSha256=$ExpectedSha256;TimeoutSeconds=$TimeoutSeconds;Worker=$true} -OutputDirectory $outputPath -TimeoutSeconds $TimeoutSeconds -CompletionFile 'office.json' -AllowedStatuses @('static-export-complete')
             if (-not (Test-Path -LiteralPath (Join-Path $outputPath 'office.json'))) { throw 'Office metadata missing' }
             $metadata.status = 'static-export-complete'
-        }
     } catch { $metadata.status = 'failed: ' + $_.Exception.Message }
-    finally { Remove-Job $job -Force; $metadata | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $outputPath 'oracle.json') }
+    finally { $metadata | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $outputPath 'oracle.json') }
     if ($metadata.status -ne 'static-export-complete') { throw $metadata.status }
     return
 }
@@ -41,7 +35,7 @@ $deck = $null
 try {
     $app = New-Object -ComObject PowerPoint.Application
     $deck = $app.Presentations.Open($copyPath, -1, 0, 0)
-    $details = [ordered]@{ version=$app.Version; build=$app.Build; slide_width_points=$deck.PageSetup.SlideWidth; slide_height_points=$deck.PageSetup.SlideHeight; slides=@() }
+    $details = [ordered]@{ status='static-export-complete'; version=$app.Version; build=$app.Build; slide_width_points=$deck.PageSetup.SlideWidth; slide_height_points=$deck.PageSetup.SlideHeight; slides=@() }
     for ($i=1; $i -le $deck.Slides.Count; $i++) {
         $slide = $deck.Slides.Item($i)
         $png = Join-Path $outputPath ('slide-{0:D2}.png' -f $i)

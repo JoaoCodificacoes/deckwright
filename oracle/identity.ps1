@@ -4,15 +4,14 @@ $outputPath=[IO.Path]::GetFullPath($OutputDirectory)
 if (-not $Worker) {
     if (Test-Path -LiteralPath $outputPath) { throw 'Use a fresh output directory' }
     New-Item -ItemType Directory -Path $outputPath | Out-Null
-    $job=Start-Job -FilePath $PSCommandPath -ArgumentList @($outputPath,$TimeoutSeconds,$true)
+    . (Join-Path $PSScriptRoot 'worker.ps1')
     $supervision=@{status='pending';timeout_seconds=$TimeoutSeconds;script_sha256=(Get-FileHash $PSCommandPath).Hash}
     try {
-        if ($null -eq (Wait-Job $job -Timeout $TimeoutSeconds)) { Stop-Job $job; throw 'Identity timeout; no PowerPoint process terminated' }
-        Receive-Job $job -ErrorAction Stop
-        if ($job.State -ne 'Completed' -or -not (Test-Path (Join-Path $outputPath 'identity.json'))) { throw 'Identity evidence missing' }
+        Invoke-OracleWorker -ScriptPath $PSCommandPath -Parameters @{OutputDirectory=$outputPath;TimeoutSeconds=$TimeoutSeconds;Worker=$true} -OutputDirectory $outputPath -TimeoutSeconds $TimeoutSeconds -CompletionFile 'identity.json'
+        if (-not (Test-Path (Join-Path $outputPath 'identity.json'))) { throw 'Identity evidence missing' }
         $supervision.status='completed'
     } catch { $supervision.status='failed';$supervision.error=$_.Exception.Message;throw }
-    finally { Remove-Job $job -Force; $supervision | ConvertTo-Json | Set-Content (Join-Path $outputPath 'supervision.json') }
+    finally { $supervision | ConvertTo-Json | Set-Content (Join-Path $outputPath 'supervision.json') }
     return
 }
 $fixture=Join-Path $outputPath 'neutral-identity.pptx'
@@ -57,7 +56,7 @@ try {
     $deck=$app.Presentations.Open($fixture,-1,0,0)
     foreach ($item in $deck.Slides.Item(1).Shapes) { $observations+=Observe 'final-save-reopen' $item }
     $deck.Close(); [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($deck); $deck=$null
-    @{ office_version=$app.Version; office_build=$app.Build; fixture_sha256=(Get-FileHash $fixture).Hash; observations=$observations } | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $outputPath 'identity.json')
+    @{ status='completed'; office_version=$app.Version; office_build=$app.Build; fixture_sha256=(Get-FileHash $fixture).Hash; observations=$observations } | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $outputPath 'identity.json')
 } finally {
     if ($null -ne $deck) { $deck.Close(); [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($deck) }
     if ($null -ne $app) { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($app) }
