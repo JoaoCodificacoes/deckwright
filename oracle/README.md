@@ -1,5 +1,15 @@
 # PowerPoint reference oracle
 
+Neutral scheduled-dispatch calibration (Windows PowerShell 7):
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File oracle/observe.ps1 -OutputDirectory fixtures/private/neutral-observation
+pwsh -NoProfile -ExecutionPolicy Bypass -File oracle/test_observation.ps1 -EvidencePath fixtures/private/neutral-observation/observation.json
+pwsh -NoProfile -ExecutionPolicy Bypass -File oracle/fonts.ps1 -OutputPath fixtures/private/fonts.json
+```
+
+Observation uses numbered entrance effects and monotonic slide-entry/before/after Next timestamps with actual slideshow slide/click indices. It is bounded by a parent timeout and closes only its own show/presentation. No screenshots, rendered-frame capture or frame-rate claim is made. Engine progression does not establish visible animation timing; reference click schedules remain gated on independent rendered observations. The neutral deck is generated and hashed, and no private reference is opened. Font inventory records installed families/files; assignment and glyph substitution remain distinct evidence categories. Identity now also tests numeric range grouping/ungrouping and final save/reopen, under a timeout; clipboard and extension-carrier gates stay pending.
+
 Run from Windows PowerShell 7 with a fresh ignored output directory:
 
 ```powershell

@@ -13,3 +13,5 @@
 !.env.example
 
 /.superpowers/
+__pycache__/
+*.py[cod]

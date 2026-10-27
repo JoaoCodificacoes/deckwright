@@ -1,7 +1,7 @@
 # Deckwright parallel-agent execution plan
 
 Date: 2026-10-25
-Status: proposed dispatch plan. No agents started and no GitHub issue dependencies changed by this document.
+Status: active execution plan. Three gpt-6.1-sol workers launched on 2026-10-25; issue scheduling distinguishes partial starts from final acceptance.
 
 **Goal:** Complete issues #1–#9 using one coordinator and up to three workers, while preserving the reference deck and the original correctness/performance gates.
 
@@ -183,4 +183,5 @@ First dispatch after bootstrap:
 - Worker C: #7 benchmark tooling and #1 host baseline.
 - Coordinator: contracts, shared wiring, review and resource queue.
 
-No implementation workers are launched as part of writing this plan.
+Wave 1 workers are active. See .superpowers/sdd/progress.md locally for the coordination ledger.
+

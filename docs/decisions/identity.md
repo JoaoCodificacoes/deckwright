@@ -2,6 +2,8 @@
 
 Status: provisional; PowerPoint survival matrix is an open Task 8 gate.
 
+Wave 2 observed repair (2026-10-26, Office 16.0 build 20527): numeric `Shapes.Range([object[]]@(1,last))` produced a ShapeRange of two; `Group()` returned type 6. `GroupItems.Item(i)` and `Ungroup().Item(i)` retained both neutral child IDs (2/4), names (`!!neutral-morph`/`neutral-second`) and distinct tags. Final save/reopen retained these values. Neutral shape duplication still leaves duplicate source tags, requiring detection. Private evidence: Windows Temp `deckwright-neutral-identity-wave2-2/identity.json`. The script now has a 1–3600-second parent timeout and rejects existing output directories. Copy/paste remains pending: this run deliberately did not replace the user's shared clipboard; the earlier headless failure is not a new visible-window test. Dedicated extension carrier and across-slide clipboard survival are untested. This additional group result does not finalize the carrier.
+
 Keep source keys in an external authored manifest. Numeric cNvPr IDs are slide-local package references, not durable source keys. Preserve existing cNvPr names used for explicit Morph matching separately; never overwrite names such as !!title with authored identity.
 
 Candidate in-package carriers are shape tags and a dedicated extension payload; neither is accepted until tested. A manifest-only geometric/text remapper cannot resolve duplicate or removed objects reliably. Ambiguity must be reported instead of silently reassigned.
