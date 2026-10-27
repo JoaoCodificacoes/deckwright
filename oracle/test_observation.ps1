@@ -16,3 +16,16 @@ for ($i=0;$i -lt 3;$i++) {
 }
 if ($evidence.rendered_effect_visibility -ne 'unverified' -or $null -ne $evidence.frame_rate) { throw 'Engine state must not claim rendered capture' }
 'PASS: neutral observed engine progression and monotonic schedule; rendered visibility remains unverified'
+$temporary=Join-Path ([IO.Path]::GetTempPath()) ('deckwright-observation-test-'+[guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $temporary | Out-Null
+$inputPath=Join-Path $temporary 'neutral.txt'
+Set-Content -LiteralPath $inputPath -Value 'neutral non-presentation guard input'
+$outputPath=Join-Path $temporary 'rejected'
+try {
+    & (Join-Path $PSScriptRoot 'observe.ps1') -Source $inputPath -ExpectedSha256 deadbeef -OutputDirectory $outputPath
+    throw 'Source mismatch was accepted'
+} catch {
+    if ($_.Exception.Message -notmatch 'Source SHA-256 mismatch') { throw }
+    if (Test-Path -LiteralPath $outputPath) { throw 'Output created before immutable source guard' }
+}
+'PASS: source mismatch fails before output writes or COM'

@@ -7,8 +7,9 @@ from pathlib import Path
 
 def compare(reference, authored):
     reports = []
-    for index, actual in enumerate(authored['slides']):
-        expected = reference['slides'][index]
+    paired_count = min(len(reference['slides']), len(authored['slides']))
+    for index in range(paired_count):
+        actual, expected = authored['slides'][index], reference['slides'][index]
         expected_shapes = {shape['id']: shape for shape in expected['shapes']}
         actual_shapes = {shape['id']: shape for shape in actual['shapes']}
         differences = []
@@ -27,7 +28,10 @@ def compare(reference, authored):
     return {'schema_version': 1, 'scope': 'corresponding leading slides; top-level COM shapes and static PNG hashes only; nested XML/assets require package evidence',
             'same_office_build': reference['version'] == authored['version'] and reference['build'] == authored['build'],
             'slide_size_equal': all(reference[k] == authored[k] for k in ('slide_width_points', 'slide_height_points')),
-            'reference_slides': len(reference['slides']), 'authored_slides': len(authored['slides']), 'slides': reports}
+            'reference_slides': len(reference['slides']), 'authored_slides': len(authored['slides']),
+            'paired_slides': paired_count,
+            'unpaired_reference_slides': list(range(paired_count + 1, len(reference['slides']) + 1)),
+            'unpaired_authored_slides': list(range(paired_count + 1, len(authored['slides']) + 1)), 'slides': reports}
 
 
 if __name__ == '__main__':

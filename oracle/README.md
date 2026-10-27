@@ -1,5 +1,7 @@
 # PowerPoint reference oracle
 
+Supervision uses `worker.ps1` for the export, identity and observation harnesses. It starts a hidden, owned PowerShell child with encoded JSON arguments and waits for a bounded interval. On timeout it terminates only that exact child process, waits at most two more seconds and writes `worker-process.json`; no process-tree kill, PowerPoint termination or Application.Quit occurs. An interrupted COM call can leave an owned presentation open and cleanup is explicitly unverified. A zero child exit also requires the caller's completion JSON and accepted status; missing or failed completion metadata is rejected. The former Start-Job/Stop-Job approach was observed hanging on blocked COM, so it is no longer used. `pwsh -NoProfile -ExecutionPolicy Bypass -File oracle/test_worker.ps1` verifies success/argument fidelity, zero-exit metadata guards and a sleeping neutral child timeout without invoking Office.
+
 Neutral scheduled-dispatch calibration (Windows PowerShell 7):
 
 ```powershell
@@ -9,6 +11,10 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File oracle/fonts.ps1 -OutputPath fixtu
 ```
 
 Observation uses numbered entrance effects and monotonic slide-entry/before/after Next timestamps with actual slideshow slide/click indices. It is bounded by a parent timeout and closes only its own show/presentation. No screenshots, rendered-frame capture or frame-rate claim is made. Engine progression does not establish visible animation timing; reference click schedules remain gated on independent rendered observations. The neutral deck is generated and hashed, and no private reference is opened. Font inventory records installed families/files; assignment and glyph substitution remain distinct evidence categories. Identity now also tests numeric range grouping/ungrouping and final save/reopen, under a timeout; clipboard and extension-carrier gates stay pending.
+
+Optional read-only source traces use `-Source <frozen-copy.pptx> -TimeoutSeconds 180` and the default selected slides 2–3, 9–12, 15–18 and 21–22. The source hash is checked before copying; source and staged hashes are checked inside the worker before Office and after cleanup. Only the staged copy is opened. `-Slides` accepts a PowerShell integer array; `-MaximumClicksPerSlide` bounds dispatch (default 10). After GotoSlide, a fixed 2500 ms observation delay permits click-state initialization during Morph; it does not prove visual transition completion. Every COM observation field has its own error record: for example slide 15 can reject GetClickIndex while reporting zero clicks. A successful supervised run means the trace completed, not that every field or feature was observable. Media playback, actual visible effects and complete scheduling remain separate gates. Keep the neutral calibration evidence alongside source traces.
+
+`python3 oracle/compare_static.py reference-office.json authored-office.json --output new-comparison.json` compares corresponding leading slides' native top-level COM objects and PNG hashes. It reports both total counts and unpaired slide indices, including when the authored deck is longer. It does not compare nested shape details, package assets or animation semantics; use independent package evidence for those.
 
 Run from Windows PowerShell 7 with a fresh ignored output directory:
 
