@@ -12,7 +12,28 @@ Initial targets on a fixed benchmark host: full build under 1 second, warm singl
 
 ## Status
 
-Planning and issue setup. The Rust framework has not been implemented yet.
+Implemented: bounded OPC import/export, deterministic roundtrips, JSON inspection,
+structural checks, and a typed static authoring API. The thesis example rebuilds
+the first three slides as editable native objects. Their PowerPoint static PNGs
+match the frozen reference exactly; this does not establish animation equivalence.
+
+The reference inspection benchmark records 205.32 ms p95 and 78.75 MiB peak RSS
+on the documented WSL host. See [the measurement PR](https://github.com/JoaoCodificacoes/deckwright/pull/14) for
+the exact revision, workloads and remaining qualification gates.
+
+## Try it
+
+```sh
+cargo run --release -p dw-cli -- inspect /path/to/deck.pptx --json
+cargo run --release -p dw-cli -- check /path/to/deck.pptx --json
+cargo run --release -p dw-cli -- roundtrip /path/to/deck.pptx --output /path/to/new-output.pptx
+cargo test --workspace --locked
+```
+
+Checks return a nonzero exit status on errors and report unsupported coverage
+explicitly. Output paths must be new. The [three-slide example](examples/thesis/README.md)
+documents private source preparation and typed text/layout edits. Timing compilation,
+state queries and full-deck reconstruction remain later milestones.
 
 ## Reference assets
 
