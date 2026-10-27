@@ -18,7 +18,7 @@ the first three slides as editable native objects. Their PowerPoint static PNGs
 match the frozen reference exactly; this does not establish animation equivalence.
 
 The reference inspection benchmark records 205.32 ms p95 and 78.75 MiB peak RSS
-on the documented WSL host. See [benchmark evidence](docs/benchmarking.md) for
+on the documented WSL host. See [the measurement PR](https://github.com/JoaoCodificacoes/deckwright/pull/14) for
 the exact revision, workloads and remaining qualification gates.
 
 ## Try it
