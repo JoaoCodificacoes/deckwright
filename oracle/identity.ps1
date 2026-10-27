@@ -1,7 +1,20 @@
-param([Parameter(Mandatory)][string]$OutputDirectory)
+param([Parameter(Mandatory)][string]$OutputDirectory,[ValidateRange(1,3600)][int]$TimeoutSeconds=60,[bool]$Worker=$false)
 $ErrorActionPreference='Stop'
 $outputPath=[IO.Path]::GetFullPath($OutputDirectory)
-New-Item -ItemType Directory -Force -Path $outputPath | Out-Null
+if (-not $Worker) {
+    if (Test-Path -LiteralPath $outputPath) { throw 'Use a fresh output directory' }
+    New-Item -ItemType Directory -Path $outputPath | Out-Null
+    $job=Start-Job -FilePath $PSCommandPath -ArgumentList @($outputPath,$TimeoutSeconds,$true)
+    $supervision=@{status='pending';timeout_seconds=$TimeoutSeconds;script_sha256=(Get-FileHash $PSCommandPath).Hash}
+    try {
+        if ($null -eq (Wait-Job $job -Timeout $TimeoutSeconds)) { Stop-Job $job; throw 'Identity timeout; no PowerPoint process terminated' }
+        Receive-Job $job -ErrorAction Stop
+        if ($job.State -ne 'Completed' -or -not (Test-Path (Join-Path $outputPath 'identity.json'))) { throw 'Identity evidence missing' }
+        $supervision.status='completed'
+    } catch { $supervision.status='failed';$supervision.error=$_.Exception.Message;throw }
+    finally { Remove-Job $job -Force; $supervision | ConvertTo-Json | Set-Content (Join-Path $outputPath 'supervision.json') }
+    return
+}
 $fixture=Join-Path $outputPath 'neutral-identity.pptx'
 if (Test-Path -LiteralPath $fixture) { throw 'Use a fresh output directory' }
 $app=$null; $deck=$null
@@ -29,8 +42,21 @@ try {
     $duplicateSlide=$slide.Duplicate().Item(1)
     $observations+=Observe 'slide-duplicate' $duplicateSlide.Shapes.Item(1)
     $observations+=@{operation='copy-paste';status='pending: clipboard paste failed in headless COM; manual isolated clipboard test required'}
-    $observations+=@{operation='group-ungroup';status='pending: COM group lookup failed; no survival claim'}
+    $second=$slide.Shapes.AddShape(1,200,100,80,40)
+    $second.Name='neutral-second'; $second.Tags.Add('deckwright.source','neutral.shape.two')
+    try {
+        $range=$slide.Shapes.Range([object[]]@(1,$slide.Shapes.Count))
+        $group=$range.Group()
+        $children=@()
+        for ($i=1;$i -le $group.GroupItems.Count;$i++) { $children+=Observe 'group-child' $group.GroupItems.Item($i) }
+        $observations+=@{operation='group';type=$group.Type;range_count=$range.Count;children=$children}
+        $ungrouped=$group.Ungroup()
+        for ($i=1;$i -le $ungrouped.Count;$i++) { $observations+=Observe 'ungroup-child' $ungrouped.Item($i) }
+    } catch { $observations+=@{operation='group-ungroup';status='failed';error=$_.Exception.ToString()} }
     $deck.Save(); $deck.Close(); [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($deck); $deck=$null
+    $deck=$app.Presentations.Open($fixture,-1,0,0)
+    foreach ($item in $deck.Slides.Item(1).Shapes) { $observations+=Observe 'final-save-reopen' $item }
+    $deck.Close(); [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($deck); $deck=$null
     @{ office_version=$app.Version; office_build=$app.Build; fixture_sha256=(Get-FileHash $fixture).Hash; observations=$observations } | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $outputPath 'identity.json')
 } finally {
     if ($null -ne $deck) { $deck.Close(); [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($deck) }
