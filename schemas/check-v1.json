@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deckwright.dev/schemas/check-v1.json",
+  "title": "Deckwright structural check report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "schema_version", "imported", "findings", "limitations"],
+  "properties": {
+    "schema": {"const": "dw.check/1"},
+    "schema_version": {"const": 1},
+    "imported": {"type": "boolean"},
+    "limitations": {"type": "array", "items": {"type": "string"}},
+    "findings": {"type": "array", "items": {
+      "type": "object", "additionalProperties": false,
+      "required": ["rule", "severity", "slide", "shape", "message", "fix_hint"],
+      "properties": {
+        "rule": {"type": "string"},
+        "severity": {"enum": ["error", "warning"]},
+        "slide": {"type": ["string", "null"]},
+        "shape": {"type": ["string", "null"]},
+        "message": {"type": "string"},
+        "fix_hint": {"type": "string"}
+      }
+    }}
+  }
+}

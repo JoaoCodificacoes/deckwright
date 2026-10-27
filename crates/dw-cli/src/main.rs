@@ -1,5 +1,5 @@
 use deckwright::{Limits, Package};
-fn run() -> Result<(), Box<dyn std::error::Error>> {
+fn run() -> Result<i32, Box<dyn std::error::Error>> {
     let a: Vec<_> = std::env::args().skip(1).collect();
     match a.as_slice() {
         [cmd, input, json] if cmd == "inspect" && json == "--json" => {
@@ -16,18 +16,28 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
             Package::open(input, Limits::default())?.write(output)?;
         }
+        [cmd, input, json] if cmd == "check" && json == "--json" => {
+            let report = deckwright::check::check_path(input, Limits::default());
+            serde_json::to_writer(std::io::stdout().lock(), &report)?;
+            println!();
+            return Ok(i32::from(report.has_errors()));
+        }
         _ => {
             return Err(
-                "usage: dw inspect <pptx> --json | dw roundtrip <input> --output <new-output>"
+                "usage: dw inspect <pptx> --json | dw roundtrip <input> --output <new-output> | dw check <pptx> --json"
                     .into(),
             );
         }
     }
-    Ok(())
+    Ok(0)
 }
 fn main() {
-    if let Err(e) = run() {
-        eprintln!("dw: {e}");
-        std::process::exit(1);
+    match run() {
+        Ok(0) => {}
+        Ok(code) => std::process::exit(code),
+        Err(e) => {
+            eprintln!("dw: {e}");
+            std::process::exit(1);
+        }
     }
 }
