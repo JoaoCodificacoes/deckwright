@@ -27,3 +27,6 @@ try { & $harness -Source $source -ExpectedSha256 $hash -OutputDirectory $staged 
 catch { if ($_.Exception.Message -match 'Staged copy SHA-256 mismatch') { $rejected = $true } else { throw } }
 if (-not $rejected) { throw 'Worker must reject a changed staged copy before COM open' }
 Write-Output 'PASS: worker verifies the exact staged bytes before COM open'
+# CI's pwsh wrapper propagates LASTEXITCODE from the expected failing children.
+# Reset it only after every assertion has passed.
+$global:LASTEXITCODE = 0
