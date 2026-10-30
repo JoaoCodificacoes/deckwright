@@ -56,3 +56,42 @@ or `None` for indefinite. Every other kind returns `Some(duration_ms)`.
 - Visibility and opacity are unaffected.
 - `QuerySession::state` at any finite t is well defined even for indefinite
   repeats. No end state is ever fabricated for them.
+
+## Media playback (wave 7, pending oracle confirmation)
+
+`EffectKind::MediaPlay { from_ms: u32, volume: u32 }` is PowerPoint's media
+call (`presetClass="mediacall" presetID="1"`) on a video or audio picture.
+`Effect.duration_ms` is the play length, which PowerPoint writes as the cmd
+behaviour's `dur`. `volume` is in thousandths of a percent, 0..=100000;
+PowerPoint's default is 80000.
+
+**Compiled XML.**
+- The effect uses `<p:cmd type="call" cmd="playFrom({from_ms/1000:.1})">`
+  (seconds, one decimal; validation requires `from_ms` to be a multiple of
+  100), containing `<p:cBhvr><p:cTn id dur fill="hold"/><p:tgtEl><p:spTgt
+  spid/></p:tgtEl></p:cBhvr>`.
+- For each distinct MediaPlay target, the compiler also emits one
+  `<p:video><p:cMediaNode vol="{volume}"><p:cTn id fill="hold"
+  display="0"><p:stCondLst><p:cond delay="indefinite"/></p:stCondLst>
+  </p:cTn><p:tgtEl><p:spTgt spid/></p:tgtEl></p:cMediaNode></p:video>`. It goes
+  in the root `tmRoot` childTnLst, after the main sequence `p:seq`.
+- Two MediaPlay effects on the same target with different volumes are a
+  validation error.
+- The parser accepts exactly this pairing: a mediacall effect needs a matching
+  `p:video` node for its target. Anything else, including a `p:audio` node or
+  extra cMediaNode timing, makes the slide timing opaque for that target.
+
+**State.** Shapes with any MediaPlay effect get `media: { playing: bool,
+position_ms: u64 }`; other shapes get `media: null`.
+- Before the effect starts, `playing` is false and the position is 0.
+- While it is active, `playing` is true and the position is
+  `from_ms + (t - begin)`.
+- After it ends, `playing` is false and the position stays at
+  `from_ms + duration_ms` (hold).
+- A later MediaPlay that starts on the same target overrides the earlier one,
+  using the same begin-order rule as other effects.
+- Visibility, opacity and geometry are unaffected.
+
+The `state-v1.json` schema gains the nullable, required `media` property on
+each shape. The effect's active duration is `duration_ms`, and media effects
+never repeat.
