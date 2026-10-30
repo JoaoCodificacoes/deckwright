@@ -21,5 +21,22 @@ state. The settled state is sampled with one click per OnClick stage at
 1 ms spacing, at `t = last click + max(effect end) + 1`.
 
 Each (rule, slide, shape) finding is reported at most once. Existing rules and
-their severities are unchanged. Scoped suppressions are deferred; until they
-exist, these heuristics stay warnings and never change the exit status.
+their severities are unchanged. Heuristic warnings never change the exit status.
+
+## Scoped suppressions (wave 6)
+
+A `Suppression { rule: String, slide: Option<usize>, shape: Option<String> }`
+matches findings with that rule. If `slide` is set, the finding must be on that
+one-based slide in presentation order. If `shape` is set, the finding must have
+that shape ID. `check::check_package_with(package, &[Suppression])` moves
+matching findings into a new top-level `suppressed` array, in the same finding
+format. `check_package(p)` equals `check_package_with(p, &[])`.
+
+Only warnings can be suppressed. A suppression that would match an error
+finding leaves it in `findings` and adds a limitation naming the suppression.
+Each suppression that matches nothing adds one limitation saying it is unused.
+
+The CLI flag is `dw check <pptx> --json [--suppress RULE[@SLIDE[:SHAPE]]]...`.
+It is repeatable, and malformed values are usage errors. The schema
+`check-v1.json` adds `suppressed` (an array of findings) to the required
+properties, and the envelope stays `dw.check/1`.
