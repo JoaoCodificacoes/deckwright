@@ -115,8 +115,42 @@
                                 "fade_in",
                                 "wipe_in",
                                 "fade_out",
-                                "motion"
+                                "motion",
+                                "scale"
                               ]
+                            },
+                            "x": {
+                              "type": "number",
+                              "exclusiveMinimum": 0,
+                              "maximum": 10
+                            },
+                            "y": {
+                              "type": "number",
+                              "exclusiveMinimum": 0,
+                              "maximum": 10
+                            },
+                            "auto_reverse": {
+                              "type": "boolean"
+                            },
+                            "repeat": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "type"
+                              ],
+                              "properties": {
+                                "type": {
+                                  "enum": [
+                                    "count",
+                                    "indefinite"
+                                  ]
+                                },
+                                "thousandths": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 1000000
+                                }
+                              }
                             },
                             "accelerate": {
                               "type": "number",
