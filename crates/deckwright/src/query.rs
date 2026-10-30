@@ -225,7 +225,10 @@ impl QuerySession {
                     ));
                 }
                 let begin = start.map(|a| a + i128::from(effect.delay_ms));
-                let end = begin.map(|a| a + i128::from(effect.duration_ms));
+                // An indefinite effect has no end, so it leaves later AfterPrevious stages unanchored.
+                let end = begin
+                    .zip(effect_active_ms(effect))
+                    .map(|(a, d)| a + i128::from(d));
                 previous_end = match (previous_end, end) {
                     (Some(a), Some(b)) => Some(a.max(b)),
                     _ => None,
@@ -274,7 +277,7 @@ impl QuerySession {
                     track.visible = active;
                     track.timing_hidden = !active;
                 }
-                EffectKind::Motion { .. } => {}
+                EffectKind::Motion { .. } | EffectKind::Scale { .. } => {}
             }
             if active {
                 match effect.kind {
@@ -314,6 +317,24 @@ impl QuerySession {
                     g.x += (from_x + (to_x - from_x) * p - to_x) * s.width;
                     g.y += (from_y + (to_y - from_y) * p - to_y) * s.height;
                 }
+            }
+        }
+        // Started scales run after motion, about the shape's current centre. They multiply, so
+        // their order does not change the result.
+        for (effect, begin) in &scheduled {
+            let Some(b) = begin.filter(|b| *b <= now) else {
+                continue;
+            };
+            let Some((fx, fy)) = scale_factors(effect, now - b) else {
+                continue;
+            };
+            if let Some(shape) = shapes.iter_mut().find(|x| x.id == effect.target)
+                && let Some(g) = shape.geometry.as_mut()
+            {
+                g.x += g.width * (1.0 - fx) / 2.0;
+                g.y += g.height * (1.0 - fy) / 2.0;
+                g.width *= fx;
+                g.height *= fy;
             }
         }
         for opaque in &s.timing.opaque {
@@ -468,6 +489,37 @@ fn progress(begin: i128, effect: &Effect, now: i128) -> f64 {
     } else {
         ((now - begin) as f64 / f64::from(effect.duration_ms)).clamp(0.0, 1.0)
     }
+}
+/// Factors (x, y) of a Scale effect `elapsed` ms after its begin. Within an iteration the forward
+/// progress is local/d, and with `auto_reverse` the second half runs back down. A finite effect
+/// past its active end holds the value just before that end (fill hold), so an exact boundary
+/// belongs to the iteration that just finished. Otherwise a boundary restarts at the first
+/// factor, which matches `t mod iteration`.
+fn scale_factors(effect: &Effect, elapsed: i128) -> Option<(f64, f64)> {
+    let EffectKind::Scale {
+        x, y, auto_reverse, ..
+    } = &effect.kind
+    else {
+        return None;
+    };
+    let d = i128::from(effect.duration_ms);
+    let iteration = if *auto_reverse { 2 * d } else { d };
+    let (t, held) = match effect_active_ms(effect).map(i128::from) {
+        Some(active) if elapsed >= active => (active, true),
+        _ => (elapsed, false),
+    };
+    let local = if held && t > 0 && t % iteration == 0 {
+        iteration
+    } else {
+        t % iteration
+    } as f64;
+    let d = d as f64;
+    let forward = if *auto_reverse && local > d {
+        1.0 - (local - d) / d
+    } else {
+        local / d
+    };
+    Some((1.0 + (x - 1.0) * forward, 1.0 + (y - 1.0) * forward))
 }
 fn ease(p: f64, a: f64, d: f64) -> f64 {
     let speed = 1.0 / (1.0 - (a + d) / 2.0);

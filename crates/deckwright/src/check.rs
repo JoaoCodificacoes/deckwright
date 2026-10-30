@@ -23,7 +23,50 @@ pub struct CheckReport {
     /// False means import failed and structural checks could not run.
     pub imported: bool,
     pub findings: Vec<Finding>,
+    /// Warnings matched by a suppression. Always present, empty when nothing matched.
+    pub suppressed: Vec<Finding>,
     pub limitations: Vec<String>,
+}
+
+/// A scoped warning suppression. `slide` is a one-based number in presentation order;
+/// `shape` is a shape ID. Each field that is set must match the finding.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Suppression {
+    pub rule: String,
+    pub slide: Option<usize>,
+    pub shape: Option<String>,
+}
+
+impl Suppression {
+    fn matches(&self, finding: &Finding, order: &[String]) -> bool {
+        self.rule == finding.rule
+            && self.slide.is_none_or(|number| {
+                finding
+                    .slide
+                    .as_deref()
+                    .and_then(|part| order.iter().position(|p| p == part))
+                    .is_some_and(|index| index + 1 == number)
+            })
+            && self.shape.as_deref().is_none_or(|id| {
+                finding
+                    .shape
+                    .as_deref()
+                    .is_some_and(|shape| shape_key(shape) == shape_key(id))
+            })
+    }
+
+    fn describe(&self) -> String {
+        let slide = self
+            .slide
+            .map(|n| format!(" on slide {n}"))
+            .unwrap_or_default();
+        let shape = self
+            .shape
+            .as_ref()
+            .map(|s| format!(" for shape {s}"))
+            .unwrap_or_default();
+        format!("{}{slide}{shape}", self.rule)
+    }
 }
 impl CheckReport {
     pub fn has_errors(&self) -> bool {
@@ -50,14 +93,24 @@ impl CheckReport {
 }
 /// Includes import failures in the versioned report; never reports a failed import as clean.
 pub fn check_path(path: impl AsRef<Path>, limits: Limits) -> CheckReport {
+    check_path_with(path, limits, &[])
+}
+
+/// `check_path` with scoped warning suppressions. Import failures ignore suppressions.
+pub fn check_path_with(
+    path: impl AsRef<Path>,
+    limits: Limits,
+    suppressions: &[Suppression],
+) -> CheckReport {
     match Package::open(path, limits) {
-        Ok(package) => check_package(&package),
+        Ok(package) => check_package_with(&package, suppressions),
         Err(error) => {
             let mut report = CheckReport {
                 schema: "dw.check/1".into(),
                 schema_version: 1,
                 imported: false,
                 findings: vec![],
+                suppressed: vec![],
                 limitations: vec!["Structural rules did not run because import failed.".into()],
             };
             report.add(
@@ -78,7 +131,12 @@ pub fn check_path(path: impl AsRef<Path>, limits: Limits) -> CheckReport {
 }
 /// Encoded slide-local checks. Does not evaluate Office playback or inherited geometry.
 pub fn check_package(package: &Package) -> CheckReport {
-    let mut report = CheckReport { schema: "dw.check/1".into(), schema_version: 1, imported: true, findings: vec![],
+    check_package_with(package, &[])
+}
+
+/// `check_package` with scoped warning suppressions applied after every rule has run.
+pub fn check_package_with(package: &Package, suppressions: &[Suppression]) -> CheckReport {
+    let mut report = CheckReport { schema: "dw.check/1".into(), schema_version: 1, imported: true, findings: vec![], suppressed: vec![],
         limitations: vec![
             "Only transitional PresentationML namespace rules are checked; Strict OOXML and full schema validation are unknown.".into(),
             "Bounds cover resolved axis-aligned geometry at slide start and in the settled state only; rotated, placeholder-inherited and opaque-timing shapes get no bounds verdict.".into(),
@@ -180,7 +238,57 @@ pub fn check_package(package: &Package) -> CheckReport {
             (a.rule.as_str(), shape_number(a)).cmp(&(b.rule.as_str(), shape_number(b)))
         });
     }
+    apply_suppressions(&mut report, package, suppressions);
     report
+}
+
+/// Moves matching warnings to `suppressed`. Errors are never moved: a suppression that
+/// matches an error adds one limitation, and a suppression that matches nothing adds one.
+fn apply_suppressions(report: &mut CheckReport, package: &Package, suppressions: &[Suppression]) {
+    if suppressions.is_empty() {
+        return;
+    }
+    // Presentation order, the same slide numbering the bounds pass uses.
+    let order = slide_layout(package)
+        .map(|(parts, _, _)| parts)
+        .unwrap_or_default();
+    let mut matched_warning = vec![false; suppressions.len()];
+    let mut matched_error = vec![false; suppressions.len()];
+    let mut kept = Vec::new();
+    for finding in std::mem::take(&mut report.findings) {
+        let hits: Vec<usize> = suppressions
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.matches(&finding, &order))
+            .map(|(i, _)| i)
+            .collect();
+        if hits.is_empty() {
+            kept.push(finding);
+        } else if finding.severity == "error" {
+            for i in hits {
+                matched_error[i] = true;
+            }
+            kept.push(finding);
+        } else {
+            for i in hits {
+                matched_warning[i] = true;
+            }
+            report.suppressed.push(finding);
+        }
+    }
+    report.findings = kept;
+    for (i, suppression) in suppressions.iter().enumerate() {
+        let name = suppression.describe();
+        if matched_error[i] {
+            report.limitations.push(format!(
+                "Suppression {name} did not apply: errors are never suppressed, so the matching error stays in findings."
+            ));
+        } else if !matched_warning[i] {
+            report.limitations.push(format!(
+                "Suppression {name} is unused: no finding matched it."
+            ));
+        }
+    }
 }
 
 /// Timing validity, opaque timing and sampled slide bounds for one slide part.
@@ -371,9 +479,12 @@ fn settled_schedule(timing: &ParsedTiming) -> (Vec<u64>, u64) {
         previous_start = start;
         previous_end = start;
         for effect in &stage.effects {
+            // Repeats extend the active duration; an indefinite repeat is sampled after one
+            // iteration, since its state at any finite time is defined but it never settles.
+            let active = timing::effect_active_ms(effect).unwrap_or(u64::from(effect.duration_ms));
             let end = start
                 .saturating_add(effect.delay_ms)
-                .saturating_add(i64::from(effect.duration_ms));
+                .saturating_add(i64::try_from(active).unwrap_or(i64::MAX));
             previous_end = previous_end.max(end);
             max_end = max_end.max(end);
         }

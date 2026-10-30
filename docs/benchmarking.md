@@ -129,3 +129,14 @@ DW_BENCH_SAMPLES=10 cargo bench -p deckwright --bench query
 Without `DW_BENCH_INPUT`, a synthetic 25-slide workload is built in memory. With it, the local deck is opened and the state slide (most timing effects) and Morph pair (most explicit matches) are measured. Five warmups run before the samples; `DW_BENCH_SAMPLES` overrides the default 50. Statistics use nearest-rank p95 and a 95% bootstrap interval (2000 resamples, fixed seed). Each operation carries a pass/fail verdict on p95 against the 5 ms budget.
 
 Results from this benchmark are local evidence only. Dedicated gates are the same as above: fail on a budget violation, or on a reproducible regression exceeding both 10% and 2 ms against a frozen baseline. Shared CI results are advisory only.
+
+## MCP transport overhead
+
+`crates/dw-mcp/benches/transport.rs` compares one `state` request through `session::Server::handle_line` with the same query as `tools/call` `dw_state` through `McpServer::handle`, on one open handle. Both timings include request handling and response serialization; request lines are prebuilt. It builds a synthetic three-slide deck with a click fade on slide 2, uses std and `serde_json` only, and prints one `dw.bench.mcp/1` JSON object. Each path reports nearest-rank median and p95 with raw nanosecond samples, and `overhead_ms` is the MCP value minus the session value for each statistic.
+
+```sh
+cargo bench -p dw-mcp --bench transport
+DW_BENCH_SAMPLES=10 cargo bench -p dw-mcp --bench transport
+```
+
+Five warmups run before the samples; `DW_BENCH_SAMPLES` overrides the default 50. The benchmark has no budget and no gate. Its numbers are local, advisory measurements from one machine and are not evidence of a regression on their own.
