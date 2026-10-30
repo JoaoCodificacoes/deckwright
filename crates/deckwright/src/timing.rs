@@ -1104,6 +1104,7 @@ pub fn parse_slide_timing(xml: &[u8], part: &str) -> Result<ParsedTiming> {
             let mut effects = Vec::new();
             source_effects(n, 0, part, &mut effects, &mut result.opaque, &volumes)?;
             if !effects.is_empty() {
+                previous_end = effects_end(&effects);
                 result.timeline.stages.push(Stage {
                     trigger: Trigger::OnClick,
                     delay_ms: 0,
