@@ -91,39 +91,48 @@ fn eased(p: f64, a: f64, d: f64) -> f64 {
         .sum()
 }
 
-/// (visible, opacity, wipe_fraction, geometry) of one shape at time `t`.
+/// (visible, opacity, wipe_fraction, geometry) of one shape at time `t`, per query.md rules
+/// 1-7. Started effects are folded in (begin, document index) order; a fade or wipe only
+/// counts while active, and a finished fade holds nothing.
 fn reference(
     shape: &ShapeSnapshot,
     w: &[(Option<i128>, &Effect)],
     t: i128,
 ) -> (bool, f64, f64, Geometry) {
+    // `w` is in document order, so `mine.first()` is the shape's first effect in the file.
     let mine: Vec<_> = w
         .iter()
         .enumerate()
         .filter(|(_, (_, e))| e.target == shape.id)
         .map(|(i, (b, e))| (*b, i, *e))
         .collect();
-    let hidden_first = mine.iter().any(|(_, _, e)| entrance(&e.kind));
-    let wiping = mine
-        .iter()
-        .any(|(_, _, e)| matches!(e.kind, EffectKind::WipeIn { .. }));
-    let (mut visible, mut opacity) = (!hidden_first, if hidden_first { 0.0 } else { 1.0 });
-    let mut wipe = if wiping { 0.0 } else { 1.0 };
-    // Started effects in time order; ties by document order.
+    let hidden_first = mine.first().is_some_and(|(_, _, e)| entrance(&e.kind));
     let mut started: Vec<_> = mine
         .iter()
         .filter_map(|(b, i, e)| b.filter(|b| *b <= t).map(|b| (b, *i, *e)))
         .collect();
     started.sort_by_key(|(b, i, _)| (*b, *i));
-    for (begin, _, e) in started {
-        let p = progress(t - begin, e.duration_ms);
+    let (mut visible, mut opacity, mut wipe) = (!hidden_first, 1.0, 1.0);
+    for (begin, _, e) in &started {
+        let elapsed = t - begin;
+        let p = progress(elapsed, e.duration_ms);
+        let active = elapsed < i128::from(e.duration_ms);
         match e.kind {
-            EffectKind::Appear => (visible, opacity) = (true, 1.0),
-            EffectKind::FadeIn => (visible, opacity) = (true, p),
-            EffectKind::WipeIn { .. } => (visible, wipe, opacity) = (true, p, 1.0),
-            EffectKind::FadeOut => (visible, opacity) = (p < 1.0, 1.0 - p),
+            EffectKind::Appear | EffectKind::FadeIn | EffectKind::WipeIn { .. } => visible = true,
+            EffectKind::FadeOut => visible = p < 1.0,
             EffectKind::Motion { .. } => {}
         }
+        if active {
+            match e.kind {
+                EffectKind::FadeIn => opacity = p,
+                EffectKind::FadeOut => opacity = 1.0 - p,
+                EffectKind::WipeIn { .. } => wipe = p,
+                _ => {}
+            }
+        }
+    }
+    if !visible {
+        opacity = 0.0;
     }
     // Motion offsets add up from the resting endpoint; a pending motion sits at `from`.
     let mut g = shape
@@ -148,40 +157,6 @@ fn reference(
         }
     }
     (visible, opacity, wipe, g)
-}
-
-/// EXCLUDED pending coordinator decision. Each clause is a construct where query.rs and the
-/// time-ordered reference differ and the spec is silent; see the report for counterexamples.
-/// (a) a pending entrance beside an effect already started on its target: query.rs applies
-///     pending entrances in document order and re-hides a revealed shape.
-/// (b) a pending WipeIn: query.rs reports wipe_fraction 1.0 while the shape is hidden.
-/// (c) two started visual effects on one target in opposite document and time order.
-/// (d) a started fade followed by a started Appear or WipeIn: whether a reveal restores opacity.
-fn excluded(slide: &SlideSnapshot, clicks: &[u64], sample: u64) -> bool {
-    let w = windows(&slide.timing.timeline, clicks);
-    let t = i128::from(sample);
-    let on = |b: &Option<i128>| b.filter(|b| *b <= t);
-    let visual = |e: &Effect| !matches!(e.kind, EffectKind::Motion { .. });
-    let fade = |e: &Effect| matches!(e.kind, EffectKind::FadeIn | EffectKind::FadeOut);
-    let reveal = |e: &Effect| matches!(e.kind, EffectKind::Appear | EffectKind::WipeIn { .. });
-    w.iter().enumerate().any(|(i, (bi, ei))| {
-        let pending = on(bi).is_none();
-        let wipe = matches!(ei.kind, EffectKind::WipeIn { .. });
-        let beside = w
-            .iter()
-            .any(|(bj, ej)| ej.target == ei.target && on(bj).is_some());
-        (pending && ((entrance(&ei.kind) && beside) || wipe))
-            || w.iter().enumerate().any(|(j, (bj, ej))| {
-                let pair = i != j && ei.target == ej.target;
-                match (on(bi), on(bj)) {
-                    (Some(a), Some(b)) if pair => {
-                        (i < j && visual(ei) && visual(ej) && a > b)
-                            || (fade(ei) && reveal(ej) && a <= b)
-                    }
-                    _ => false,
-                }
-            })
-    })
 }
 
 fn compare(
@@ -321,7 +296,6 @@ proptest! {
     #[test]
     fn state_agrees_with_naive_reference((slide, clicks, sample) in case()) {
         prop_assume!(validate_timeline(&slide.timing.timeline).is_ok());
-        prop_assume!(!excluded(&slide, &clicks, sample));
         let session = QuerySession::from_snapshots(vec![slide.clone()]);
         let report = session
             .state(1, &clicks, sample)
@@ -349,7 +323,7 @@ fn eff(target: u32, delay_ms: i64, duration_ms: u32, kind: EffectKind) -> Effect
     }
 }
 
-fn pinned(ids: &[u32], stages: Vec<Stage>) -> QuerySession {
+fn pinned_slide(ids: &[u32], stages: Vec<Stage>) -> SlideSnapshot {
     let geometry = Geometry {
         x: 0.0,
         y: 0.0,
@@ -360,7 +334,11 @@ fn pinned(ids: &[u32], stages: Vec<Stage>) -> QuerySession {
         .iter()
         .map(|&id| shape(id, Some(geometry.clone())))
         .collect();
-    QuerySession::from_snapshots(vec![slide(shapes, stages)])
+    slide(shapes, stages)
+}
+
+fn pinned(ids: &[u32], stages: Vec<Stage>) -> QuerySession {
+    QuerySession::from_snapshots(vec![pinned_slide(ids, stages)])
 }
 
 #[test]
@@ -457,4 +435,130 @@ fn click_without_remaining_on_click_stage_changes_nothing() {
     let extra = s.state(1, &[0, 200], 500).unwrap();
     assert_eq!(once.shapes[0].opacity, extra.shapes[0].opacity);
     assert_eq!(once.shapes[0].visible, extra.shapes[0].visible);
+}
+
+// ---- decided same-target cases (query.md, "Same-target effect semantics") ----
+
+fn on(effects: Vec<Effect>) -> Stage {
+    stage_of(Trigger::OnClick, 0, effects)
+}
+
+/// Each decided case as (slide, click history, sample time).
+fn decided_a() -> (SlideSnapshot, Vec<u64>, u64) {
+    let s = pinned_slide(
+        &[11],
+        vec![
+            on(vec![eff(11, 0, 1, EffectKind::Appear)]),
+            on(vec![
+                eff(11, 172, 1, EffectKind::FadeOut),
+                eff(11, 0, 1, EffectKind::Appear),
+            ]),
+        ],
+    );
+    (s, vec![4871], 4871)
+}
+
+fn decided_b() -> (SlideSnapshot, Vec<u64>, u64) {
+    let wipe = EffectKind::WipeIn {
+        direction: Direction::Left,
+    };
+    let s = pinned_slide(
+        &[2],
+        vec![
+            on(vec![eff(2, 0, 1, EffectKind::Appear)]),
+            on(vec![eff(2, 0, 1, wipe)]),
+        ],
+    );
+    (s, vec![], 0)
+}
+
+fn decided_c() -> (SlideSnapshot, Vec<u64>, u64) {
+    let s = pinned_slide(
+        &[40],
+        vec![
+            on(vec![eff(40, 535, 1, EffectKind::FadeIn)]),
+            on(vec![eff(40, 0, 1, EffectKind::FadeOut)]),
+        ],
+    );
+    (s, vec![376, 502], 8616)
+}
+
+fn decided_d1() -> (SlideSnapshot, Vec<u64>, u64) {
+    let s = pinned_slide(
+        &[4],
+        vec![
+            on(vec![eff(4, 0, 1, EffectKind::FadeOut)]),
+            on(vec![eff(4, 0, 1, EffectKind::Appear)]),
+        ],
+    );
+    (s, vec![1482, 4186], 4186)
+}
+
+fn decided_d2() -> (SlideSnapshot, Vec<u64>, u64) {
+    let s = pinned_slide(
+        &[33],
+        vec![
+            on(vec![eff(33, 166, 1929, EffectKind::FadeIn)]),
+            on(vec![eff(33, 0, 1, EffectKind::Appear)]),
+        ],
+    );
+    (s, vec![6699, 6952], 6952)
+}
+
+/// (visible, opacity, wipe_fraction) of the first shape from `state()`.
+type Case = (SlideSnapshot, Vec<u64>, u64);
+
+fn state_of((s, clicks, t): Case) -> (Option<bool>, Option<f64>, Option<f64>) {
+    let r = QuerySession::from_snapshots(vec![s])
+        .state(1, &clicks, t)
+        .unwrap();
+    let sh = &r.shapes[0];
+    (sh.visible, sh.opacity, sh.wipe_fraction)
+}
+
+#[test]
+fn decided_a_pending_pair_does_not_rehide_a_revealed_shape() {
+    let (v, o, _) = state_of(decided_a());
+    assert_eq!((v, o), (Some(true), Some(1.0)));
+}
+
+#[test]
+fn decided_b_pending_entrance_starts_hidden_with_unit_wipe() {
+    assert_eq!(state_of(decided_b()), (Some(false), Some(0.0), Some(1.0)));
+}
+
+#[test]
+fn decided_c_finished_fade_out_after_later_fade_in_reveals_fully() {
+    let (v, o, _) = state_of(decided_c());
+    assert_eq!((v, o), (Some(true), Some(1.0)));
+}
+
+#[test]
+fn decided_d1_later_appear_restores_visibility_after_finished_fade() {
+    let (v, o, _) = state_of(decided_d1());
+    assert_eq!((v, o), (Some(true), Some(1.0)));
+}
+
+#[test]
+fn decided_d2_appear_inside_running_fade_in_keeps_fade_opacity() {
+    let (v, o, _) = state_of(decided_d2());
+    assert_eq!(v, Some(true));
+    assert!((o.unwrap() - (6952.0 - 6865.0) / 1929.0).abs() < 1e-9);
+}
+
+#[test]
+fn reference_matches_decided_cases() {
+    // (visible, opacity, wipe_fraction) of the first shape from the reference alone.
+    let eval = |(s, clicks, t): Case| {
+        let w = windows(&s.timing.timeline, &clicks);
+        let (v, o, wp, _) = reference(&s.shapes[0], &w, i128::from(t));
+        (v, o, wp)
+    };
+    assert_eq!(eval(decided_a()), (true, 1.0, 1.0));
+    assert_eq!(eval(decided_b()), (false, 0.0, 1.0));
+    assert_eq!(eval(decided_c()), (true, 1.0, 1.0));
+    assert_eq!(eval(decided_d1()), (true, 1.0, 1.0));
+    let (v, o, _) = eval(decided_d2());
+    assert!(v);
+    assert!((o - (6952.0 - 6865.0) / 1929.0).abs() < 1e-9);
 }
