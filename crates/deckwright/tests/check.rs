@@ -26,7 +26,7 @@ fn valid_ids_names_and_targets_pass() {
         report
             .limitations
             .iter()
-            .any(|s| s.contains("Bounds unknown"))
+            .any(|s| s.contains("Bounds cover resolved axis-aligned geometry"))
     );
 }
 #[test]

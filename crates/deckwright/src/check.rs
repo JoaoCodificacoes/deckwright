@@ -81,9 +81,9 @@ pub fn check_package(package: &Package) -> CheckReport {
     let mut report = CheckReport { schema: "dw.check/1".into(), schema_version: 1, imported: true, findings: vec![],
         limitations: vec![
             "Only transitional PresentationML namespace rules are checked; Strict OOXML and full schema validation are unknown.".into(),
-            "Bounds unknown: inherited, rotated and grouped geometry is not resolved; no bounds verdict is emitted.".into(),
+            "Bounds cover resolved axis-aligned geometry at slide start and in the settled state only; rotated, placeholder-inherited and opaque-timing shapes get no bounds verdict.".into(),
             "Morph checks cover duplicate explicit !! names within each slide, not matching or playback.".into(),
-            "Timing checks cover encoded spTgt shape IDs only; timing semantics and playback are unknown.".into(),
+            "Timing checks cover spTgt targets, parsing, validation and opaque constructs of the supported subset; PowerPoint playback is not verified.".into(),
         ] };
     let mut parsed_xml = BTreeSet::new();
     for name in package.part_names().filter(|n| is_slide_part(n)) {
