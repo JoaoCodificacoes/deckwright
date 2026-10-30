@@ -1,0 +1,52 @@
+name: Install
+on:
+  pull_request:
+    paths:
+      - 'crates/**'
+      - 'examples/morph_demo/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/install.yml'
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  fresh-install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install dw and dw-mcp into an empty root
+        run: |
+          cargo install --locked --path crates/dw-cli --root "$RUNNER_TEMP/dw"
+          cargo install --locked --path crates/dw-mcp --root "$RUNNER_TEMP/dw"
+          echo "$RUNNER_TEMP/dw/bin" >> "$GITHUB_PATH"
+      - name: Build the neutral Morph demo deck
+        run: cargo run --locked --release -p deckwright --example morph_demo -- "$RUNNER_TEMP/demo.pptx"
+      - name: Query and check it with the installed binaries
+        working-directory: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          dw check demo.pptx --json > check.json
+          dw query morph demo.pptx --from 1 --to 2 --json > morph.json
+          dw query state demo.pptx --slide 3 --at-ms 1500 --clicks-ms 1000 --json > state.json
+          python3 - <<'PY'
+          import json
+          check = json.load(open('check.json'))
+          assert not [f for f in check['findings'] if f['severity'] == 'error'], check
+          morph = json.load(open('morph.json'))
+          box = [m for m in morph['explicit_matches'] if m['name'] == '!!box']
+          assert box and box[0]['delta']['x'] == 8000000, morph
+          assert json.load(open('state.json'))['schema'] == 'dw.query.state/1'
+          PY
+      - name: Drive dw serve and dw-mcp over stdio
+        working-directory: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' '{"id":1,"op":"open","path":"demo.pptx"}' '{"id":2,"op":"morph","handle":"h1","from":1,"to":2}' \
+            | dw serve | python3 -c "import json,sys; r=[json.loads(l) for l in sys.stdin]; assert [x['ok'] for x in r]==[True,True], r"
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}' \
+            '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"dw_open","arguments":{"path":"demo.pptx"}}}' \
+            | dw-mcp | python3 -c "import json,sys; r=[json.loads(l) for l in sys.stdin]; assert len(r)==2 and r[1]['result']['isError'] is False, r"
