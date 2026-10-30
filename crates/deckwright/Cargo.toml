@@ -17,3 +17,7 @@ path = "../../examples/thesis/main.rs"
 
 [dev-dependencies]
 proptest = { version = "1", default-features = false, features = ["std"] }
+
+[[bench]]
+name = "query"
+harness = false
