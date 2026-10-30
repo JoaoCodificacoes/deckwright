@@ -62,3 +62,31 @@ WithPrevious and AfterPrevious anchors depend on stage boundaries.
 `equivalent` returns `None` when either side has opaque timing (equivalence is
 unknown, not false), otherwise `Some(canonical timelines equal && transitions
 equal)`.
+
+## Same-target effect semantics (decided 2026-10-30, pending oracle confirmation)
+
+These rules resolve the differential-test findings (a)–(d). They follow the
+SMIL sandwich model PowerPoint timing is based on. Until rendered PowerPoint
+recordings confirm them, they are coordinator decisions, not observed facts.
+
+1. **Started effects only.** An effect has started when its stage is anchored
+   (its click happened or its predecessor chain is anchored) and
+   `begin <= t`. Effects that have not started change nothing, except rule 2.
+2. **Initial visibility.** A shape whose first effect in document order is an
+   entrance (`Appear`, `FadeIn`, `WipeIn`) starts hidden. A later pending
+   entrance never re-hides a shape that is already visible.
+3. **Priority.** Started effects apply in order of `begin`, ties broken by
+   document order. The latest-begun visibility effect sets `visible`: an
+   entrance sets true; a `FadeOut` sets true while active and false once
+   finished.
+4. **Opacity.** If the shape is hidden by timing (rule 2, or a finished
+   `FadeOut` under rule 3), opacity is 0. Otherwise the latest-begun fade that
+   is still active (`begin <= t < end`) sets opacity (`FadeIn`: p;
+   `FadeOut`: 1 - p). With no active fade, opacity is 1. A finished fade does
+   not hold its opacity, so a shape revealed after an exit is fully opaque.
+5. **Wipe.** The latest-begun active `WipeIn` sets `wipe_fraction` to p.
+   Otherwise it is 1, including while a pending wipe keeps the shape hidden.
+6. **Motion** is unchanged. Offsets are additive, the static transform is the
+   resting endpoint, and a pending motion sits at its start offset.
+7. Unchanged as well: opaque timing, `hidden` shapes, parent propagation and
+   effects at `p` from `[0,1]` clamped at the end.
