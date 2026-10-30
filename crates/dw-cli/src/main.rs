@@ -1,6 +1,7 @@
-use deckwright::{Limits, Package, query::QuerySession};
+use deckwright::{Limits, Package, query::QuerySession, session::Server};
+use std::io::{BufRead, Write};
 use std::{collections::HashMap, str::FromStr};
-const USAGE: &str = "usage: dw inspect <pptx> --json | dw roundtrip <input> --output <new-output> | dw check <pptx> --json | dw query state <pptx> --slide <N> --at-ms <T> [--clicks-ms <t1,t2,...>] --json | dw query timeline <pptx> --slide <N> --json | dw query morph <pptx> --from <N> --to <M> --json";
+const USAGE: &str = "usage: dw inspect <pptx> --json | dw roundtrip <input> --output <new-output> | dw check <pptx> --json | dw query state <pptx> --slide <N> --at-ms <T> [--clicks-ms <t1,t2,...>] --json | dw query timeline <pptx> --slide <N> --json | dw query morph <pptx> --from <N> --to <M> --json | dw serve [--max-open <N>]";
 fn uint<T: FromStr>(name: &str, s: &str) -> Result<T, String> {
     if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
         return Err(format!("{name} expects a base-10 integer, got {s:?}"));
@@ -77,6 +78,27 @@ fn query(sub: &str, input: &str, rest: &[String]) -> Result<(), Box<dyn std::err
         }
     }
 }
+// One response line per request line; each line is flushed before the next is read.
+fn serve(rest: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    let max_open = match rest {
+        [] => 8,
+        [flag, value] if flag == "--max-open" => {
+            let n: usize = uint("--max-open", value)?;
+            if n == 0 {
+                return Err("--max-open must be at least 1".into());
+            }
+            n
+        }
+        _ => return Err(USAGE.into()),
+    };
+    let mut server = Server::new(max_open);
+    let mut out = std::io::stdout().lock();
+    for line in std::io::stdin().lock().lines() {
+        writeln!(out, "{}", server.handle_line(&line?))?;
+        out.flush()?;
+    }
+    Ok(())
+}
 fn run() -> Result<i32, Box<dyn std::error::Error>> {
     let a: Vec<_> = std::env::args().skip(1).collect();
     match a.as_slice() {
@@ -101,6 +123,7 @@ fn run() -> Result<i32, Box<dyn std::error::Error>> {
             return Ok(i32::from(report.has_errors()));
         }
         [cmd, sub, input, rest @ ..] if cmd == "query" => query(sub, input, rest)?,
+        [cmd, rest @ ..] if cmd == "serve" => serve(rest)?,
         _ => return Err(USAGE.into()),
     }
     Ok(0)
