@@ -221,8 +221,24 @@ fn tools() -> Vec<Value> {
         ),
         tool(
             "check",
-            "Run the dw.check/1 checks on the snapshot behind a handle.",
-            json!({"handle": handle}),
+            "Run the dw.check/1 checks on the snapshot behind a handle. Optional suppress moves matching warnings (never errors) to `suppressed`.",
+            json!({
+                "handle": handle,
+                "suppress": {
+                    "type": "array",
+                    "description": "Scoped suppressions; see docs/decisions/check.md.",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["rule"],
+                        "properties": {
+                            "rule": {"type": "string"},
+                            "slide": {"type": "integer", "minimum": 1, "description": "1-based slide."},
+                            "shape": {"type": "string", "description": "Shape ID."},
+                        },
+                    },
+                },
+            }),
             &["handle"],
         ),
         tool(

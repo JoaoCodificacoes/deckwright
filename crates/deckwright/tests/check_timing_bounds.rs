@@ -240,7 +240,7 @@ fn report_keeps_the_check_schema_shape() {
     assert!(!report.findings.is_empty());
     let value = serde_json::to_value(&report).unwrap();
     let object = value.as_object().unwrap();
-    assert_eq!(object.len(), 5);
+    assert_eq!(object.len(), 6);
     assert_eq!(object["schema"], "dw.check/1");
     assert_eq!(object["schema_version"], 1);
     assert_eq!(object["imported"], true);
