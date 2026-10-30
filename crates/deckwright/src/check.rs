@@ -479,9 +479,12 @@ fn settled_schedule(timing: &ParsedTiming) -> (Vec<u64>, u64) {
         previous_start = start;
         previous_end = start;
         for effect in &stage.effects {
+            // Repeats extend the active duration; an indefinite repeat is sampled after one
+            // iteration, since its state at any finite time is defined but it never settles.
+            let active = timing::effect_active_ms(effect).unwrap_or(u64::from(effect.duration_ms));
             let end = start
                 .saturating_add(effect.delay_ms)
-                .saturating_add(i64::from(effect.duration_ms));
+                .saturating_add(i64::try_from(active).unwrap_or(i64::MAX));
             previous_end = previous_end.max(end);
             max_end = max_end.max(end);
         }

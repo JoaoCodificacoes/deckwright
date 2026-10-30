@@ -298,3 +298,22 @@ fn malformed_but_parseable_timing_is_reported_never_clean() {
         );
     }
 }
+
+#[test]
+fn settled_bounds_include_repeated_emphasis() {
+    // 2.5 forward passes of x2 hold factor 2 at the active end (1500 ms), not at one
+    // iteration (600 ms), so the grown shape crosses the right edge only when settled.
+    let scale = EffectKind::Scale {
+        x: 3.0,
+        y: 3.0,
+        repeat: Repeat::Count { thousandths: 2500 },
+        auto_reverse: false,
+    };
+    let report = check_package(&package(&timed(860, vec![click(scale)])));
+    assert_eq!(
+        new_rules(&report),
+        vec![("partially-off-slide", Some("2"))],
+        "{:?}",
+        report.findings
+    );
+}
