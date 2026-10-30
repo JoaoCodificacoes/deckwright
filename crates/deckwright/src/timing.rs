@@ -805,3 +805,44 @@ pub fn parse_slide_timing(xml: &[u8], part: &str) -> Result<ParsedTiming> {
     }
     Ok(result)
 }
+
+/// Canonical timing form: stage order, triggers and stage delays are kept, and
+/// the effects of each stage are stable-sorted by `target` only.
+///
+/// Effects within one stage are concurrent, so the order of effects on different
+/// targets is not semantic. Effects on the same target keep their relative order,
+/// because later effects determine the final properties of that shape. Stages are
+/// never merged and stage delays are never folded into effects, since
+/// `WithPrevious` and `AfterPrevious` anchors depend on stage boundaries.
+///
+/// The result evaluates identically to the input, and canonicalizing is idempotent.
+pub fn canonicalize(timeline: &Timeline) -> Timeline {
+    Timeline {
+        stages: timeline
+            .stages
+            .iter()
+            .map(|s| {
+                let mut effects = s.effects.clone();
+                // `sort_by_key` is stable: same-target order is preserved.
+                effects.sort_by_key(|e| e.target);
+                Stage {
+                    trigger: s.trigger.clone(),
+                    delay_ms: s.delay_ms,
+                    effects,
+                }
+            })
+            .collect(),
+    }
+}
+
+/// Compares two parsed timings by their canonical form and transition.
+///
+/// Returns `None` when either side has opaque timing, because equivalence is
+/// unknown in that case rather than false. Otherwise returns `Some(true)` exactly
+/// when the canonical timelines and the transitions are equal.
+pub fn equivalent(a: &ParsedTiming, b: &ParsedTiming) -> Option<bool> {
+    if !a.opaque.is_empty() || !b.opaque.is_empty() {
+        return None;
+    }
+    Some(canonicalize(&a.timeline) == canonicalize(&b.timeline) && a.transition == b.transition)
+}
