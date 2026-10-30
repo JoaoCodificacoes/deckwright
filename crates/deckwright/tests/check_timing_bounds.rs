@@ -259,3 +259,42 @@ fn report_keeps_the_check_schema_shape() {
         assert!(finding["fix_hint"].is_string());
     }
 }
+
+#[test]
+fn malformed_but_parseable_timing_is_reported_never_clean() {
+    // The parser maps constructs outside the valid supported subset to opaque timing,
+    // so `timing-invalid` stays a defensive guard. Either way the slide is not clean.
+    let motion = EffectKind::Motion {
+        from_x: -0.25,
+        from_y: 0.0,
+        to_x: 0.0,
+        to_y: 0.0,
+        accelerate: 0.0,
+        decelerate: 0.0,
+    };
+    let endpoint = String::from_utf8(timed(100, vec![click(motion)]))
+        .unwrap()
+        .replace("L 0 0 E", "L 0.5 0 E");
+    let mut stage = click(EffectKind::FadeIn);
+    stage.delay_ms = 7;
+    stage.effects[0].delay_ms = 11;
+    let max = format!("delay=\"{}\"", i64::MAX);
+    let overflow = String::from_utf8(timed(100, vec![stage]))
+        .unwrap()
+        .replace("delay=\"7\"", &max)
+        .replace("delay=\"11\"", &max);
+    for xml in [endpoint, overflow] {
+        assert!(
+            xml.contains("L 0.5 0 E") || xml.contains(&max),
+            "fixture edit failed"
+        );
+        let report = check_package(&package(xml.as_bytes()));
+        let rules = new_rules(&report);
+        assert!(
+            rules
+                .iter()
+                .any(|(r, _)| matches!(*r, "timing-opaque" | "timing-invalid" | "timing-parse")),
+            "{rules:?}"
+        );
+    }
+}
