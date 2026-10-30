@@ -27,13 +27,20 @@ the exact revision, workloads and remaining qualification gates.
 cargo run --release -p dw-cli -- inspect /path/to/deck.pptx --json
 cargo run --release -p dw-cli -- check /path/to/deck.pptx --json
 cargo run --release -p dw-cli -- roundtrip /path/to/deck.pptx --output /path/to/new-output.pptx
+cargo run --release -p dw-cli -- query state /path/to/deck.pptx --slide 2 --at-ms 1500 --clicks-ms 1000 --json
+cargo run --release -p dw-cli -- query morph /path/to/deck.pptx --from 1 --to 2 --json
+cargo run --release -p dw-cli -- serve --max-open 8          # JSON-lines session (docs/decisions/session.md)
+cargo run --release -p dw-mcp -- --max-open 8                # MCP stdio server (docs/decisions/mcp.md)
+cargo run --release -p deckwright --example morph_demo -- /tmp/morph-demo.pptx
 cargo test --workspace --locked
 ```
 
 Checks return a nonzero exit status on errors and report unsupported coverage
 explicitly. Output paths must be new. The [three-slide example](examples/thesis/README.md)
-documents private source preparation and typed text/layout edits. Timing compilation,
-state queries and full-deck reconstruction remain later milestones.
+documents private source preparation and typed text/layout edits. The neutral
+[Morph demo](examples/morph_demo/README.md) builds a public animated deck from a generated
+blank template. Timing compilation and state/Morph queries are implemented; their
+PowerPoint oracle verification and the full 25-slide reconstruction remain pending.
 
 ## Reference assets
 
