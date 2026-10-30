@@ -48,6 +48,53 @@ pub enum EffectKind {
         accelerate: f64,
         decelerate: f64,
     },
+    /// Grow/Shrink emphasis (`presetClass="emph" presetID="6"`). `x` and `y` are the factors
+    /// reached at the end of one forward pass. See docs/decisions/timing.md.
+    Scale {
+        x: f64,
+        y: f64,
+        repeat: Repeat,
+        auto_reverse: bool,
+    },
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Repeat {
+    /// Thousandths of a repetition, 1..=1_000_000; 1000 means once.
+    Count {
+        thousandths: u32,
+    },
+    Indefinite,
+}
+/// Active duration in milliseconds: one iteration (doubled by `auto_reverse`) times the
+/// repeat count. `None` for an indefinite repeat, which never ends.
+pub fn effect_active_ms(effect: &Effect) -> Option<u64> {
+    match &effect.kind {
+        EffectKind::Scale {
+            repeat,
+            auto_reverse,
+            ..
+        } => {
+            let iteration = u64::from(effect.duration_ms) * if *auto_reverse { 2 } else { 1 };
+            match repeat {
+                Repeat::Count { thousandths } => Some(iteration * u64::from(*thousandths) / 1000),
+                Repeat::Indefinite => None,
+            }
+        }
+        _ => Some(u64::from(effect.duration_ms)),
+    }
+}
+/// Latest end of a stage's effects relative to the stage start. `None` when any effect is
+/// indefinite, so a following `AfterPrevious` stage is never anchored.
+fn effects_end(effects: &[Effect]) -> Option<i64> {
+    let mut latest: Option<i64> = None;
+    for e in effects {
+        let end = i64::try_from(effect_active_ms(e)?)
+            .ok()?
+            .checked_add(e.delay_ms)?;
+        latest = Some(latest.map_or(end, |l| l.max(end)));
+    }
+    Some(latest.unwrap_or(0))
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -114,6 +161,19 @@ pub fn validate_timeline(timeline: &Timeline) -> Result<()> {
                 .checked_add(e.delay_ms)
                 .and_then(|v| v.checked_add(i64::from(e.duration_ms)))
                 .ok_or_else(|| bad("timing", "delay/duration overflow"))?;
+            if let EffectKind::Scale { x, y, repeat, .. } = &e.kind
+                && (![*x, *y]
+                    .iter()
+                    .all(|f| f.is_finite() && *f > 0.0 && *f <= 10.0)
+                    || [*x, *y].iter().any(|f| (f * 100_000.0).round() < 1.0)
+                    || matches!(repeat, Repeat::Count { thousandths }
+                        if !(1..=1_000_000).contains(thousandths)))
+            {
+                return Err(bad(
+                    "timing",
+                    "scale requires finite factors in (0, 10] and a repeat count of 1..=1000000 thousandths",
+                ));
+            }
             if let EffectKind::Motion {
                 from_x,
                 from_y,
@@ -165,6 +225,10 @@ fn visibility(id: &mut u32, shape: u32, hidden: bool, delay: u32) -> String {
         if hidden { "hidden" } else { "visible" }
     )
 }
+/// Scale factors are stored in the XML as integers in hundred-thousandths.
+fn scale_units(factor: f64) -> i64 {
+    (factor * 100_000.0).round() as i64
+}
 fn effect_xml(e: &Effect, id: &mut u32, node_type: &str) -> String {
     let n = ct(id);
     let behavior = ct(id);
@@ -173,7 +237,25 @@ fn effect_xml(e: &Effect, id: &mut u32, node_type: &str) -> String {
         EffectKind::WipeIn { .. } => (22, "entr"),
         EffectKind::FadeOut => (10, "exit"),
         EffectKind::Motion { .. } => (0, "path"),
+        EffectKind::Scale { .. } => (6, "emph"),
         _ => (10, "entr"),
+    };
+    let repeat = if let EffectKind::Scale {
+        repeat,
+        auto_reverse,
+        ..
+    } = &e.kind
+    {
+        let count = match repeat {
+            Repeat::Count { thousandths } => thousandths.to_string(),
+            Repeat::Indefinite => "indefinite".into(),
+        };
+        format!(
+            " repeatCount=\"{count}\"{}",
+            if *auto_reverse { " autoRev=\"1\"" } else { "" }
+        )
+    } else {
+        String::new()
     };
     let subtype = match e.kind {
         EffectKind::WipeIn {
@@ -229,6 +311,13 @@ fn effect_xml(e: &Effect, id: &mut u32, node_type: &str) -> String {
                 "<p:animMotion origin=\"layout\" path=\"M {from_x} {from_y} L {to_x} {to_y} E\" pathEditMode=\"relative\" rAng=\"0\">{bhvr}</p:animMotion>"
             )
         }
+        EffectKind::Scale { x, y, .. } => {
+            children += &format!(
+                "<p:animScale>{bhvr}<p:by x=\"{}\" y=\"{}\"/></p:animScale>",
+                scale_units(x),
+                scale_units(y)
+            )
+        }
         _ => {
             let filter = match &e.kind {
                 EffectKind::WipeIn { direction } => format!(
@@ -256,7 +345,7 @@ fn effect_xml(e: &Effect, id: &mut u32, node_type: &str) -> String {
         children += &visibility(id, e.target, true, e.duration_ms.saturating_sub(1));
     }
     format!(
-        "<p:par><p:cTn id=\"{n}\" dur=\"{}\" presetID=\"{preset}\" presetClass=\"{class}\" presetSubtype=\"{subtype}\" fill=\"hold\" grpId=\"{}\" nodeType=\"{node_type}\"{ease}><p:stCondLst><p:cond delay=\"{}\"/></p:stCondLst><p:childTnLst>{children}</p:childTnLst></p:cTn></p:par>",
+        "<p:par><p:cTn id=\"{n}\" dur=\"{}\" presetID=\"{preset}\" presetClass=\"{class}\" presetSubtype=\"{subtype}\" fill=\"hold\" grpId=\"{}\" nodeType=\"{node_type}\"{ease}{repeat}><p:stCondLst><p:cond delay=\"{}\"/></p:stCondLst><p:childTnLst>{children}</p:childTnLst></p:cTn></p:par>",
         e.duration_ms,
         if class == "exit" { 1 } else { 0 },
         e.delay_ms
@@ -305,7 +394,7 @@ pub fn compile_animated_slide(
     let mut block = String::new();
     let mut block_click = false;
     let mut previous = None;
-    let mut previous_end = 0_i64;
+    let mut previous_end = Some(0_i64);
     for s in &timeline.stages {
         if matches!(s.trigger, Trigger::OnClick | Trigger::OnSlideStart) && !block.is_empty() {
             let wrapper = ct(&mut id);
@@ -331,8 +420,13 @@ pub fn compile_animated_slide(
             _ => {
                 let delay = if matches!(s.trigger, Trigger::AfterPrevious) {
                     previous_end
-                        .checked_add(s.delay_ms)
-                        .ok_or_else(|| bad("timing", "overlap overflow"))?
+                        .and_then(|end| end.checked_add(s.delay_ms))
+                        .ok_or_else(|| {
+                            bad(
+                                "timing",
+                                "after-previous stage follows an indefinite effect or overflows",
+                            )
+                        })?
                 } else {
                     s.delay_ms
                 };
@@ -358,12 +452,7 @@ pub fn compile_animated_slide(
             "<p:par><p:cTn id=\"{n}\" fill=\"hold\" nodeType=\"{node}\"><p:stCondLst>{condition}</p:stCondLst><p:childTnLst>{children}</p:childTnLst></p:cTn></p:par>"
         );
         previous = Some(n);
-        previous_end = s
-            .effects
-            .iter()
-            .map(|e| e.delay_ms + i64::from(e.duration_ms))
-            .max()
-            .unwrap_or(0);
+        previous_end = effects_end(&s.effects);
     }
     if !block.is_empty() {
         let wrapper = ct(&mut id);
@@ -437,6 +526,7 @@ fn read_effect(n: &Node, offset: i64, part: &str) -> Result<Effect> {
         Some("entr") => matches!(attr(n, "presetID"), Some("1" | "10" | "22")),
         Some("exit") => attr(n, "presetID") == Some("10"),
         Some("path") => attr(n, "presetID") == Some("0"),
+        Some("emph") => attr(n, "presetID") == Some("6"),
         _ => false,
     };
     if !supported {
@@ -515,6 +605,40 @@ fn read_effect(n: &Node, offset: i64, part: &str) -> Result<Effect> {
             .next()
             .ok_or_else(|| bad(part, "effect missing duration"))?;
         (kind, number(duration, "dur", part)?)
+    } else if let Some(s) = n.descendants("animScale").next() {
+        if s.children.len() != 2 {
+            return Err(bad(part, "scale behaviour must hold cBhvr and by only"));
+        }
+        let repeat = match attr(n, "repeatCount") {
+            Some("indefinite") => Repeat::Indefinite,
+            Some(v) => Repeat::Count {
+                thousandths: v
+                    .parse()
+                    .map_err(|_| bad(part, "invalid scale repeatCount"))?,
+            },
+            None => return Err(bad(part, "scale missing repeatCount")),
+        };
+        let auto_reverse = match attr(n, "autoRev") {
+            None => false,
+            Some("1") => true,
+            Some(_) => return Err(bad(part, "invalid scale autoRev")),
+        };
+        let by = child(s, "by").ok_or_else(|| bad(part, "scale missing by"))?;
+        let factor =
+            |key: &str| -> Result<f64> { Ok(number::<i64>(by, key, part)? as f64 / 100_000.0) };
+        let duration = s
+            .descendants("cTn")
+            .next()
+            .ok_or_else(|| bad(part, "scale missing duration"))?;
+        (
+            EffectKind::Scale {
+                x: factor("x")?,
+                y: factor("y")?,
+                repeat,
+                auto_reverse,
+            },
+            number(duration, "dur", part)?,
+        )
     } else if attr(n, "presetID") == Some("1") && n.descendants("set").next().is_some() {
         (EffectKind::Appear, number(n, "dur", part)?)
     } else {
@@ -612,7 +736,7 @@ pub fn parse_slide_timing(xml: &[u8], part: &str) -> Result<ParsedTiming> {
     let Some(timing) = root.descendants("timing").next() else {
         return Ok(result);
     };
-    fn inspect(n: &Node, unknown: &mut Vec<OpaqueTiming>) {
+    fn inspect(n: &Node, parent: &str, unknown: &mut Vec<OpaqueTiming>) {
         let allowed = matches!(
             n.name.as_str(),
             "timing"
@@ -635,11 +759,12 @@ pub fn parse_slide_timing(xml: &[u8], part: &str) -> Result<ParsedTiming> {
                 | "strVal"
                 | "animEffect"
                 | "animMotion"
+                | "animScale"
                 | "prevCondLst"
                 | "nextCondLst"
                 | "bldLst"
                 | "bldP"
-        );
+        ) || (n.name == "by" && parent == "animScale");
         if n.namespace != P || !allowed {
             unknown.push(opaque(n, format!("unsupported timing element {}", n.name)));
             return;
@@ -658,10 +783,19 @@ pub fn parse_slide_timing(xml: &[u8], part: &str) -> Result<ParsedTiming> {
                         | "grpId"
                         | "accel"
                         | "decel"
+                        | "repeatCount"
+                        | "autoRev"
                 )
             })
         {
             unknown.push(opaque(n, "unsupported time node attributes"));
+        }
+        // Repeats are only recognised on the Grow/Shrink effect node itself.
+        if n.name == "cTn"
+            && (n.attrs.contains_key("repeatCount") || n.attrs.contains_key("autoRev"))
+            && !(attr(n, "presetID") == Some("6") && attr(n, "presetClass") == Some("emph"))
+        {
+            unknown.push(opaque(n, "repeat placement outside emphasis scale"));
         }
         if n.name == "cond"
             && attr(n, "evt").is_some_and(|e| !matches!(e, "onBegin" | "onPrev" | "onNext"))
@@ -675,10 +809,10 @@ pub fn parse_slide_timing(xml: &[u8], part: &str) -> Result<ParsedTiming> {
             unknown.push(opaque(n, "text/subshape targets are unsupported"));
         }
         for c in &n.children {
-            inspect(c, unknown);
+            inspect(c, &n.name, unknown);
         }
     }
-    inspect(timing, &mut result.opaque);
+    inspect(timing, "", &mut result.opaque);
     let mut ids = BTreeSet::new();
     for n in timing.descendants("cTn") {
         let id: u32 = number(n, "id", part)?;
@@ -705,7 +839,7 @@ pub fn parse_slide_timing(xml: &[u8], part: &str) -> Result<ParsedTiming> {
             .push(opaque(timing, "missing supported main sequence"));
         return Ok(result);
     };
-    let mut previous_end = 0_i64;
+    let mut previous_end = Some(0_i64);
     let mut groups = Vec::new();
     for group in &list.children {
         let nested = child(group, "cTn").and_then(|n| child(n, "childTnLst"));
@@ -770,7 +904,14 @@ pub fn parse_slide_timing(xml: &[u8], part: &str) -> Result<ParsedTiming> {
         };
         let mut stage_delay = delay(n, part)?;
         if matches!(trigger, Trigger::AfterPrevious) {
-            stage_delay -= previous_end;
+            let Some(end) = previous_end else {
+                result.opaque.push(opaque(
+                    n,
+                    "after-previous stage follows an indefinite effect",
+                ));
+                continue;
+            };
+            stage_delay -= end;
         }
         let mut effects = Vec::new();
         if let Some(children) = child(n, "childTnLst") {
@@ -779,11 +920,7 @@ pub fn parse_slide_timing(xml: &[u8], part: &str) -> Result<ParsedTiming> {
             }
         }
         if !effects.is_empty() {
-            previous_end = effects
-                .iter()
-                .map(|e| e.delay_ms + i64::from(e.duration_ms))
-                .max()
-                .unwrap_or(0);
+            previous_end = effects_end(&effects);
             result.timeline.stages.push(Stage {
                 trigger,
                 delay_ms: stage_delay,
