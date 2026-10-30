@@ -202,6 +202,7 @@ impl QuerySession {
         let mut warnings: Vec<String> = s.timing.opaque.iter().map(|o| o.reason.clone()).collect();
         let mut previous_start = Some(0_i128);
         let mut previous_end = Some(0_i128);
+        let mut scheduled: Vec<(&Effect, Option<i128>)> = Vec::new();
         for stage in &s.timing.timeline.stages {
             let anchor = match stage.trigger {
                 Trigger::OnSlideStart => Some(0),
@@ -229,55 +230,89 @@ impl QuerySession {
                     (Some(a), Some(b)) => Some(a.max(b)),
                     _ => None,
                 };
-                if let Some(shape) = shapes.iter_mut().find(|x| x.id == effect.target) {
-                    let p = begin.and_then(|b| {
-                        if i128::from(sample_time_ms) < b {
-                            None
-                        } else {
-                            Some(if effect.duration_ms == 0 {
-                                1.0
-                            } else {
-                                ((i128::from(sample_time_ms) - b) as f64
-                                    / f64::from(effect.duration_ms))
-                                .clamp(0.0, 1.0)
-                            })
-                        }
-                    });
-                    match &effect.kind {
-                        EffectKind::Appear | EffectKind::FadeIn | EffectKind::WipeIn { .. } => {
-                            if let Some(p) = p {
-                                shape.visible = Some(true);
-                                match effect.kind {
-                                    EffectKind::FadeIn => shape.opacity = Some(p),
-                                    EffectKind::WipeIn { .. } => shape.wipe_fraction = Some(p),
-                                    _ => {}
-                                }
-                            } else {
-                                shape.visible = Some(false);
-                                shape.opacity = Some(0.0);
-                            }
-                        }
-                        EffectKind::FadeOut => {
-                            if let Some(p) = p {
-                                shape.opacity = Some(1.0 - p);
-                                shape.visible = Some(p < 1.0);
-                            }
-                        }
-                        EffectKind::Motion {
-                            from_x,
-                            from_y,
-                            to_x,
-                            to_y,
-                            accelerate,
-                            decelerate,
-                        } => {
-                            let p = ease(p.unwrap_or(0.0), *accelerate, *decelerate);
-                            if let Some(g) = shape.geometry.as_mut() {
-                                g.x += (from_x + (to_x - from_x) * p - to_x) * s.width;
-                                g.y += (from_y + (to_y - from_y) * p - to_y) * s.height;
-                            }
-                        }
-                    }
+                scheduled.push((effect, begin));
+            }
+        }
+        let now = i128::from(sample_time_ms);
+        let mut tracks: Vec<Track> = s.shapes.iter().map(|x| Track::new(x.hidden)).collect();
+        // Rule 2: only a shape's first effect in document order can hide it initially.
+        for (effect, _) in &scheduled {
+            let Some(i) = shapes.iter().position(|x| x.id == effect.target) else {
+                continue;
+            };
+            let track = &mut tracks[i];
+            if !track.seen {
+                track.seen = true;
+                if matches!(
+                    effect.kind,
+                    EffectKind::Appear | EffectKind::FadeIn | EffectKind::WipeIn { .. }
+                ) {
+                    track.visible = false;
+                    track.timing_hidden = true;
+                }
+            }
+        }
+        // Rules 3-5: started effects in begin order; the stable sort keeps document order on ties.
+        let mut started: Vec<(i128, &Effect)> = scheduled
+            .iter()
+            .filter_map(|(effect, begin)| begin.filter(|b| *b <= now).map(|b| (b, *effect)))
+            .collect();
+        started.sort_by_key(|(begin, _)| *begin);
+        for (begin, effect) in started {
+            let Some(i) = shapes.iter().position(|x| x.id == effect.target) else {
+                continue;
+            };
+            let track = &mut tracks[i];
+            let active = now < begin + i128::from(effect.duration_ms);
+            let p = progress(begin, effect, now);
+            match effect.kind {
+                EffectKind::Appear | EffectKind::FadeIn | EffectKind::WipeIn { .. } => {
+                    track.visible = true;
+                    track.timing_hidden = false;
+                }
+                EffectKind::FadeOut => {
+                    track.visible = active;
+                    track.timing_hidden = !active;
+                }
+                EffectKind::Motion { .. } => {}
+            }
+            if active {
+                match effect.kind {
+                    EffectKind::FadeIn => track.fade = Some(p),
+                    EffectKind::FadeOut => track.fade = Some(1.0 - p),
+                    EffectKind::WipeIn { .. } => track.wipe = p,
+                    _ => {}
+                }
+            }
+        }
+        for (shape, track) in shapes.iter_mut().zip(&tracks) {
+            shape.visible = Some(track.visible);
+            shape.opacity = Some(if track.timing_hidden {
+                0.0
+            } else {
+                track.fade.unwrap_or(1.0)
+            });
+            shape.wipe_fraction = Some(track.wipe);
+        }
+        // Rule 6: motion is additive and applied in document order; pending motion sits at its start.
+        for (effect, begin) in &scheduled {
+            if let EffectKind::Motion {
+                from_x,
+                from_y,
+                to_x,
+                to_y,
+                accelerate,
+                decelerate,
+            } = &effect.kind
+                && let Some(shape) = shapes.iter_mut().find(|x| x.id == effect.target)
+            {
+                let p = begin
+                    .filter(|b| *b <= now)
+                    .map_or(0.0, |b| progress(b, effect, now));
+                let p = ease(p, *accelerate, *decelerate);
+                if let Some(g) = shape.geometry.as_mut() {
+                    g.x += (from_x + (to_x - from_x) * p - to_x) * s.width;
+                    g.y += (from_y + (to_y - from_y) * p - to_y) * s.height;
                 }
             }
         }
@@ -404,6 +439,34 @@ impl QuerySession {
             }
         }
         Ok(report)
+    }
+}
+/// Per-shape visibility state accumulated while applying started effects.
+struct Track {
+    visible: bool,
+    /// True when visibility or opacity is withheld by timing (rule 2 or a finished fade-out).
+    timing_hidden: bool,
+    seen: bool,
+    fade: Option<f64>,
+    wipe: f64,
+}
+impl Track {
+    fn new(hidden: bool) -> Self {
+        Self {
+            visible: !hidden,
+            timing_hidden: false,
+            seen: false,
+            fade: None,
+            wipe: 1.0,
+        }
+    }
+}
+/// Progress of an effect that has started (`begin <= now`), clamped to `[0, 1]`.
+fn progress(begin: i128, effect: &Effect, now: i128) -> f64 {
+    if effect.duration_ms == 0 {
+        1.0
+    } else {
+        ((now - begin) as f64 / f64::from(effect.duration_ms)).clamp(0.0, 1.0)
     }
 }
 fn ease(p: f64, a: f64, d: f64) -> f64 {
