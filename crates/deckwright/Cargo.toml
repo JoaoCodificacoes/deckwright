@@ -21,3 +21,7 @@ proptest = { version = "1", default-features = false, features = ["std"] }
 [[bench]]
 name = "query"
 harness = false
+
+[[example]]
+name = "morph_demo"
+path = "../../examples/morph_demo/main.rs"
