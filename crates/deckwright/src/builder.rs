@@ -34,7 +34,7 @@ const PRESET_GEOMETRIES: &[&str] = &[
     "curvedLeftArrow", "curvedRightArrow", "curvedUpArrow", "decagon",
     "diagStripe", "diamond", "dodecagon", "donut",
     "doubleWave", "downArrow", "downArrowCallout", "ellipse",
-    "ellipseRibbon", "ellipseRibbon2", "explosion1", "explosion2",
+    "ellipseRibbon", "ellipseRibbon2",
     "flowChartAlternateProcess", "flowChartCollate", "flowChartConnector", "flowChartDecision",
     "flowChartDelay", "flowChartDisplay", "flowChartDocument", "flowChartExtract",
     "flowChartInputOutput", "flowChartInternalStorage", "flowChartMagneticDisk", "flowChartMagneticDrum",

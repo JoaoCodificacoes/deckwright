@@ -266,3 +266,42 @@ fn new_model_types_round_trip_and_reject_unknown_fields() {
     bad["objects"][0]["kind"]["properties"]["custom"]["paths"][0]["extra"] = json!(1);
     assert!(serde_json::from_value::<Slide>(bad).is_err());
 }
+
+#[test]
+fn explosion_names_are_not_preset_geometry() {
+    // ST_ShapeType spells these irregularSeal1/irregularSeal2; explosion1/2 are UI names.
+    for (name, ok) in [
+        ("explosion1", false),
+        ("explosion2", false),
+        ("irregularSeal1", true),
+        ("irregularSeal2", true),
+    ] {
+        let mut slide = deckwright::model::Slide::default();
+        slide.objects.push(deckwright::model::Object {
+            key: "s".into(),
+            id: 2,
+            name: "s".into(),
+            morph_name: None,
+            description: None,
+            kind: deckwright::model::ObjectKind::Shape {
+                textbox: false,
+                lock_no_group: false,
+                placeholder: None,
+                properties: deckwright::model::Properties {
+                    geometry: Some(deckwright::model::Geometry {
+                        preset: name.into(),
+                        adjustments: vec![],
+                    }),
+                    ..Default::default()
+                },
+                style: None,
+                text: None,
+            },
+        });
+        assert_eq!(
+            deckwright::builder::compile_slide(&slide).is_ok(),
+            ok,
+            "{name}"
+        );
+    }
+}
