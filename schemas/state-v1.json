@@ -37,7 +37,8 @@
           "opacity",
           "text",
           "wipe_fraction",
-          "geometry"
+          "geometry",
+          "media"
         ],
         "additionalProperties": false,
         "type": "object",
@@ -87,6 +88,26 @@
               "number",
               "null"
             ]
+          },
+          "media": {
+            "required": [
+              "playing",
+              "position_ms"
+            ],
+            "additionalProperties": false,
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "playing": {
+                "type": "boolean"
+              },
+              "position_ms": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           },
           "geometry": {
             "required": [
