@@ -122,8 +122,7 @@ pub fn validate_timeline(timeline: &Timeline) -> Result<()> {
                 accelerate,
                 decelerate,
             } = e.kind
-            {
-                if ![from_x, from_y, to_x, to_y, accelerate, decelerate]
+                && (![from_x, from_y, to_x, to_y, accelerate, decelerate]
                     .iter()
                     .all(|x| x.is_finite())
                     || [from_x, from_y, to_x, to_y].iter().any(|x| x.abs() > 100.0)
@@ -131,13 +130,12 @@ pub fn validate_timeline(timeline: &Timeline) -> Result<()> {
                     || to_y != 0.0
                     || accelerate < 0.0
                     || decelerate < 0.0
-                    || accelerate + decelerate > 1.0
-                {
-                    return Err(bad(
-                        "timing",
-                        "motion requires finite coordinates within 100 slide units and easing fractions summing to <=1",
-                    ));
-                }
+                    || accelerate + decelerate > 1.0)
+            {
+                return Err(bad(
+                    "timing",
+                    "motion requires finite coordinates within 100 slide units and easing fractions summing to <=1",
+                ));
             }
         }
     }
