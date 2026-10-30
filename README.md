@@ -21,6 +21,16 @@ The reference inspection benchmark records 205.32 ms p95 and 78.75 MiB peak RSS
 on the documented WSL host. See [the measurement PR](https://github.com/JoaoCodificacoes/deckwright/pull/14) for
 the exact revision, workloads and remaining qualification gates.
 
+## Install
+
+```sh
+cargo install --locked --path crates/dw-cli   # dw: inspect, roundtrip, check, query, serve
+cargo install --locked --path crates/dw-mcp   # dw-mcp: MCP stdio server for agents
+```
+
+The `Install` workflow repeats this into an empty root on every change, then
+drives the installed binaries against the neutral Morph demo deck.
+
 ## Try it
 
 ```sh
