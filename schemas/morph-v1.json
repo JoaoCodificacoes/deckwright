@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "required": [
+    "schema_version",
+    "revision",
+    "explicit_matches",
+    "warnings",
+    "from",
+    "to",
+    "fade_out",
+    "fade_in",
+    "schema"
+  ],
+  "additionalProperties": false,
+  "title": "morph report v1",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "revision": {
+      "const": 1
+    },
+    "explicit_matches": {
+      "type": "array",
+      "items": {
+        "required": [
+          "from_id",
+          "name",
+          "delta",
+          "to_id"
+        ],
+        "additionalProperties": false,
+        "type": "object",
+        "properties": {
+          "from_id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string",
+            "pattern": "^!!"
+          },
+          "delta": {
+            "required": [
+              "x",
+              "y",
+              "width",
+              "height"
+            ],
+            "additionalProperties": false,
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "height": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "width": {
+                "type": "number"
+              },
+              "x": {
+                "type": "number"
+              }
+            }
+          },
+          "to_id": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "from": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "to": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "fade_out": {
+      "type": "array",
+      "items": {
+        "type": "integer"
+      }
+    },
+    "fade_in": {
+      "type": "array",
+      "items": {
+        "type": "integer"
+      }
+    },
+    "schema": {
+      "const": "dw.query.morph/1"
+    }
+  }
+}

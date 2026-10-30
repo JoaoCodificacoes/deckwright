@@ -19,3 +19,5 @@ pub mod xml;
 pub use error::{Error, Result};
 pub use package::{Limits, Package};
 pub mod check;
+pub mod query;
+pub mod timing;

@@ -115,3 +115,17 @@ unavailable; these measurements do not isolate XML parsing, JSON encoding or
 compression. No reviewed baseline was available for regression qualification.
 Strict OOXML namespace rules and full XML schema validation are also outside
 the current structural checker.
+
+## Query benchmark
+
+`crates/deckwright/benches/query.rs` measures in-process slide-state evaluation and one adjacent Morph diff, each including `serde_json` serialization. Open or build time is reported separately and never mixed into samples. It uses std only and prints one `dw.bench.query/1` JSON object on stdout.
+
+```sh
+cargo bench -p deckwright --bench query
+DW_BENCH_INPUT=/path/deck.pptx cargo bench -p deckwright --bench query
+DW_BENCH_SAMPLES=10 cargo bench -p deckwright --bench query
+```
+
+Without `DW_BENCH_INPUT`, a synthetic 25-slide workload is built in memory. With it, the local deck is opened and the state slide (most timing effects) and Morph pair (most explicit matches) are measured. Five warmups run before the samples; `DW_BENCH_SAMPLES` overrides the default 50. Statistics use nearest-rank p95 and a 95% bootstrap interval (2000 resamples, fixed seed). Each operation carries a pass/fail verdict on p95 against the 5 ms budget.
+
+Results from this benchmark are local evidence only. Dedicated gates are the same as above: fail on a budget violation, or on a reproducible regression exceeding both 10% and 2 ms against a frozen baseline. Shared CI results are advisory only.
