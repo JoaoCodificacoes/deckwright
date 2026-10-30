@@ -2,7 +2,7 @@
 //!
 //! Each open handle owns one package snapshot. The query session and the check
 //! package are built from the same bytes, so they always describe one revision.
-use crate::{Error, Limits, Package, Result, check, query::QuerySession, xml};
+use crate::{Error, Limits, Package, Result, check, query::QuerySession};
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 use std::{
@@ -89,13 +89,7 @@ fn load(path: &Path) -> std::result::Result<Loaded, Fail> {
         .map_err(io)?;
     let package = Package::from_bytes(bytes, limits).map_err(io_error)?;
     let session = QuerySession::from_package(&package, limits).map_err(io_error)?;
-    let presentation = xml::parse(
-        package.part("ppt/presentation.xml").unwrap_or_default(),
-        "ppt/presentation.xml",
-        limits.max_xml_depth,
-    )
-    .map_err(io_error)?;
-    let slides = presentation.descendants("sldId").count();
+    let slides = session.slide_count();
     Ok(Loaded {
         meta,
         package,

@@ -37,6 +37,8 @@ pub struct SlideSnapshot {
 }
 pub struct QuerySession {
     slides: Vec<SlideSnapshot>,
+    /// sldSz of the presentation. Kept apart from `slides` so it is known with zero slides.
+    size: (f64, f64),
 }
 /// Playback of a media call on one shape. Only present for shapes with a media call.
 #[derive(Clone, Copy, Debug, Serialize, PartialEq)]
@@ -110,9 +112,32 @@ fn child<'a>(n: &'a Node, name: &str, ns: &str) -> Option<&'a Node> {
 fn number(n: &Node, k: &str) -> Option<f64> {
     n.attrs.get(k)?.parse().ok()
 }
+/// Part a `sldId` resolves to, or None when its relationship is missing or has no internal target.
+fn slide_target<'a>(package: &'a Package, id: &Node) -> Option<&'a str> {
+    id.attrs
+        .get(R)
+        .and_then(|rid| {
+            package
+                .relationships()
+                .iter()
+                .find(|r| r.source == "ppt/presentation.xml" && r.id == *rid)
+        })
+        .and_then(|r| r.resolved_target.as_deref())
+}
+/// Slide parts in presentation order, parsed without a session. Used only where no session can be
+/// built, so suppressions still resolve slide numbers. None when the presentation does not parse
+/// or any `sldId` does not resolve.
+pub(crate) fn slide_order(package: &Package) -> Option<Vec<String>> {
+    let bytes = package.part("ppt/presentation.xml")?;
+    let root = xml::parse(bytes, "ppt/presentation.xml", usize::MAX).ok()?;
+    root.descendants("sldId")
+        .map(|id| slide_target(package, id).map(str::to_owned))
+        .collect()
+}
 impl QuerySession {
     pub fn from_snapshots(slides: Vec<SlideSnapshot>) -> Self {
-        Self { slides }
+        let size = slides.first().map_or((0.0, 0.0), |s| (s.width, s.height));
+        Self { slides, size }
     }
     pub fn open(path: impl AsRef<Path>, limits: Limits) -> Result<Self> {
         Self::from_package(&Package::open(path, limits)?, limits)
@@ -127,16 +152,7 @@ impl QuerySession {
         let height = size.and_then(|n| number(n, "cy")).unwrap_or(0.0);
         let mut slides = Vec::new();
         for id in root.descendants("sldId") {
-            let rel = id
-                .attrs
-                .get(R)
-                .and_then(|id| {
-                    package
-                        .relationships()
-                        .iter()
-                        .find(|r| r.source == "ppt/presentation.xml" && r.id == *id)
-                })
-                .and_then(|r| r.resolved_target.as_ref())
+            let rel = slide_target(package, id)
                 .ok_or_else(|| bad("ppt/presentation.xml", "unresolved slide"))?;
             let bytes = package.part(rel).ok_or_else(|| bad(rel, "missing slide"))?;
             let node = xml::parse(bytes, rel, limits.max_xml_depth)?;
@@ -145,14 +161,34 @@ impl QuerySession {
                 snapshot_children(tree, None, None, &mut shapes);
             }
             slides.push(SlideSnapshot {
-                part: rel.clone(),
+                part: rel.to_owned(),
                 width,
                 height,
                 shapes,
                 timing: crate::timing::parse_slide_timing(bytes, rel)?,
             });
         }
-        Ok(Self { slides })
+        Ok(Self {
+            slides,
+            size: (width, height),
+        })
+    }
+    /// Number of slides in presentation order.
+    pub fn slide_count(&self) -> usize {
+        self.slides.len()
+    }
+    /// Part name of a one-based slide in presentation order.
+    pub fn slide_part(&self, slide: usize) -> Result<&str> {
+        Ok(&self.slide(slide)?.part)
+    }
+    /// Slide width and height in EMU, from the snapshot.
+    pub fn slide_size(&self, slide: usize) -> Result<(f64, f64)> {
+        let s = self.slide(slide)?;
+        Ok((s.width, s.height))
+    }
+    /// sldSz of the presentation, also when there are no slides. Zero when absent or unparsable.
+    pub(crate) fn presentation_size(&self) -> (f64, f64) {
+        self.size
     }
     fn slide(&self, index: usize) -> Result<&SlideSnapshot> {
         index

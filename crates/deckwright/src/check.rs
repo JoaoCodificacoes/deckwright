@@ -1,6 +1,6 @@
 use crate::{
     Limits, Package,
-    query::{Geometry, QuerySession},
+    query::{Geometry, QuerySession, slide_order},
     timing::{self, ParsedTiming, Trigger},
     xml,
 };
@@ -198,25 +198,24 @@ pub fn check_package_with(package: &Package, suppressions: &[Suppression]) -> Ch
             }
         }
     }
-    let bounds = match (
-        QuerySession::from_package(package, Limits::default()),
-        slide_layout(package),
-    ) {
-        (Ok(session), Some((parts, width, height))) if width > 0.0 && height > 0.0 => {
-            Some(Bounds {
-                session,
-                parts,
-                width,
-                height,
-            })
+    let session = QuerySession::from_package(package, Limits::default());
+    let bounds = match &session {
+        Ok(session) => {
+            let (width, height) = session.presentation_size();
+            if width > 0.0 && height > 0.0 {
+                Some(Bounds {
+                    session,
+                    width,
+                    height,
+                })
+            } else {
+                report.limitations.push(
+                    "Bounds skipped: slide size or slide order is unavailable; no bounds findings were emitted.".into(),
+                );
+                None
+            }
         }
-        (Ok(_), _) => {
-            report.limitations.push(
-                "Bounds skipped: slide size or slide order is unavailable; no bounds findings were emitted.".into(),
-            );
-            None
-        }
-        (Err(error), _) => {
+        Err(error) => {
             report.limitations.push(format!(
                 "Bounds skipped: the query session could not be built ({error}); no bounds findings were emitted."
             ));
@@ -238,20 +237,23 @@ pub fn check_package_with(package: &Package, suppressions: &[Suppression]) -> Ch
             (a.rule.as_str(), shape_number(a)).cmp(&(b.rule.as_str(), shape_number(b)))
         });
     }
-    apply_suppressions(&mut report, package, suppressions);
+    // Presentation order, the same slide numbering the bounds pass uses.
+    let order = match &session {
+        Ok(session) => (1..=session.slide_count())
+            .filter_map(|n| session.slide_part(n).ok().map(str::to_owned))
+            .collect(),
+        Err(_) => slide_order(package).unwrap_or_default(),
+    };
+    apply_suppressions(&mut report, suppressions, &order);
     report
 }
 
 /// Moves matching warnings to `suppressed`. Errors are never moved: a suppression that
 /// matches an error adds one limitation, and a suppression that matches nothing adds one.
-fn apply_suppressions(report: &mut CheckReport, package: &Package, suppressions: &[Suppression]) {
+fn apply_suppressions(report: &mut CheckReport, suppressions: &[Suppression], order: &[String]) {
     if suppressions.is_empty() {
         return;
     }
-    // Presentation order, the same slide numbering the bounds pass uses.
-    let order = slide_layout(package)
-        .map(|(parts, _, _)| parts)
-        .unwrap_or_default();
     let mut matched_warning = vec![false; suppressions.len()];
     let mut matched_error = vec![false; suppressions.len()];
     let mut kept = Vec::new();
@@ -259,7 +261,7 @@ fn apply_suppressions(report: &mut CheckReport, package: &Package, suppressions:
         let hits: Vec<usize> = suppressions
             .iter()
             .enumerate()
-            .filter(|(_, s)| s.matches(&finding, &order))
+            .filter(|(_, s)| s.matches(&finding, order))
             .map(|(i, _)| i)
             .collect();
         if hits.is_empty() {
@@ -341,7 +343,7 @@ fn check_slide_timing(report: &mut CheckReport, name: &str, bytes: &[u8], bounds
         );
     }
     if let Some(bounds) = bounds
-        && let Some(number) = bounds.parts.iter().position(|p| p == name).map(|i| i + 1)
+        && let Some(number) = slide_number(bounds.session, name)
     {
         bounds_findings(report, name, bounds, number, &timing);
     }
@@ -410,12 +412,15 @@ fn bounds_findings(
     }
 }
 
-struct Bounds {
-    session: QuerySession,
-    /// Slide parts in QuerySession order; index + 1 is the query slide number.
-    parts: Vec<String>,
+struct Bounds<'a> {
+    session: &'a QuerySession,
     width: f64,
     height: f64,
+}
+
+/// One-based presentation number of a slide part, as the query session numbers it.
+fn slide_number(session: &QuerySession, name: &str) -> Option<usize> {
+    (1..=session.slide_count()).find(|&n| session.slide_part(n).is_ok_and(|p| p == name))
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -490,34 +495,6 @@ fn settled_schedule(timing: &ParsedTiming) -> (Vec<u64>, u64) {
         }
     }
     (times, last + max_end.max(0) as u64 + 1)
-}
-
-/// Slide parts in QuerySession order, with the same sldSz source as query.rs.
-fn slide_layout(package: &Package) -> Option<(Vec<String>, f64, f64)> {
-    const R: &str = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id";
-    let bytes = package.part("ppt/presentation.xml")?;
-    let root = xml::parse(bytes, "ppt/presentation.xml", usize::MAX).ok()?;
-    let size = root.descendants("sldSz").next();
-    let number = |key: &str| {
-        size.and_then(|n| n.attrs.get(key))
-            .and_then(|v| v.parse::<f64>().ok())
-            .unwrap_or(0.0)
-    };
-    let mut parts = Vec::new();
-    for id in root.descendants("sldId") {
-        let target = id
-            .attrs
-            .get(R)
-            .and_then(|rid| {
-                package
-                    .relationships()
-                    .iter()
-                    .find(|r| r.source == "ppt/presentation.xml" && r.id == *rid)
-            })
-            .and_then(|r| r.resolved_target.clone())?;
-        parts.push(target);
-    }
-    Some((parts, number("cx"), number("cy")))
 }
 
 fn is_slide_part(name: &str) -> bool {
