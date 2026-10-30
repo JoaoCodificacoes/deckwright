@@ -95,6 +95,7 @@ fn shape(
                     fill: Some(Fill::None),
                 }),
                 effects: None,
+                custom: None,
             },
             style: None,
             text,

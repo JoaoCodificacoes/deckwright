@@ -45,6 +45,9 @@ pub enum ObjectKind {
         #[serde(default)]
         crop: Option<Crop>,
         properties: Properties,
+        /// Makes a video picture: `relationship` stays the poster image.
+        #[serde(default)]
+        media: Option<MediaLink>,
     },
     Connector {
         properties: Properties,
@@ -92,6 +95,9 @@ pub struct Properties {
     pub transform: Option<Transform>,
     #[serde(default)]
     pub geometry: Option<Geometry>,
+    /// Custom geometry; mutually exclusive with `geometry`.
+    #[serde(default)]
+    pub custom: Option<CustomGeometry>,
     #[serde(default)]
     pub fill: Option<Fill>,
     #[serde(default)]
@@ -112,6 +118,67 @@ pub struct Geometry {
 pub struct Adjustment {
     pub name: String,
     pub value: i32,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CustomGeometry {
+    pub paths: Vec<GeometryPath>,
+}
+/// A path in its own coordinate space `0..=width` by `0..=height`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GeometryPath {
+    pub width: Emu,
+    pub height: Emu,
+    /// ST_PathFillMode, such as "none" or "norm"; None inherits the default.
+    #[serde(default)]
+    pub fill: Option<String>,
+    /// false emits `stroke="0"`; true is the DrawingML default and is omitted.
+    #[serde(default)]
+    pub stroke: bool,
+    pub commands: Vec<PathCommand>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum PathCommand {
+    MoveTo {
+        x: Emu,
+        y: Emu,
+    },
+    LineTo {
+        x: Emu,
+        y: Emu,
+    },
+    QuadTo {
+        x1: Emu,
+        y1: Emu,
+        x: Emu,
+        y: Emu,
+    },
+    CubicTo {
+        x1: Emu,
+        y1: Emu,
+        x2: Emu,
+        y2: Emu,
+        x: Emu,
+        y: Emu,
+    },
+    /// Angles are in 60000ths of a degree.
+    ArcTo {
+        width_radius: Emu,
+        height_radius: Emu,
+        start_angle: i32,
+        swing_angle: i32,
+    },
+    /// A struct variant: serde ignores deny_unknown_fields on unit variants of tagged enums.
+    Close {},
+}
+/// Relationship IDs for a video picture's video part and its media extension part.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MediaLink {
+    pub video_relationship: String,
+    pub media_relationship: String,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]

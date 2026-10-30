@@ -1,11 +1,72 @@
 //! Compile bounded typed static content into native editable DrawingML.
 //! No source slide or shape XML is accepted by this API.
-use crate::{Result, model::*};
+use crate::{Result, model::*, units::Emu};
 use std::collections::BTreeSet;
 
 const A: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
 const P: &str = "http://schemas.openxmlformats.org/presentationml/2006/main";
 const R: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+const P14: &str = "http://schemas.microsoft.com/office/powerpoint/2010/main";
+const PATH_FILL_MODES: &[&str] = &[
+    "none",
+    "norm",
+    "lighten",
+    "lightenLess",
+    "darken",
+    "darkenLess",
+];
+/// ECMA-376 ST_ShapeType preset names, sorted for binary_search.
+#[rustfmt::skip]
+const PRESET_GEOMETRIES: &[&str] = &[
+    "accentBorderCallout1", "accentBorderCallout2", "accentBorderCallout3", "accentCallout1",
+    "accentCallout2", "accentCallout3", "actionButtonBackPrevious", "actionButtonBeginning",
+    "actionButtonBlank", "actionButtonDocument", "actionButtonEnd", "actionButtonForwardNext",
+    "actionButtonHelp", "actionButtonHome", "actionButtonInformation", "actionButtonMovie",
+    "actionButtonReturn", "actionButtonSound", "arc", "bentArrow",
+    "bentConnector2", "bentConnector3", "bentConnector4", "bentConnector5",
+    "bentUpArrow", "bevel", "blockArc", "borderCallout1",
+    "borderCallout2", "borderCallout3", "bracePair", "bracketPair",
+    "callout1", "callout2", "callout3", "can",
+    "chartPlus", "chartStar", "chartX", "chevron",
+    "chord", "circularArrow", "cloud", "cloudCallout",
+    "corner", "cornerTabs", "cube", "curvedConnector2",
+    "curvedConnector3", "curvedConnector4", "curvedConnector5", "curvedDownArrow",
+    "curvedLeftArrow", "curvedRightArrow", "curvedUpArrow", "decagon",
+    "diagStripe", "diamond", "dodecagon", "donut",
+    "doubleWave", "downArrow", "downArrowCallout", "ellipse",
+    "ellipseRibbon", "ellipseRibbon2", "explosion1", "explosion2",
+    "flowChartAlternateProcess", "flowChartCollate", "flowChartConnector", "flowChartDecision",
+    "flowChartDelay", "flowChartDisplay", "flowChartDocument", "flowChartExtract",
+    "flowChartInputOutput", "flowChartInternalStorage", "flowChartMagneticDisk", "flowChartMagneticDrum",
+    "flowChartMagneticTape", "flowChartManualInput", "flowChartManualOperation", "flowChartMerge",
+    "flowChartMultidocument", "flowChartOfflineStorage", "flowChartOffpageConnector", "flowChartOnlineStorage",
+    "flowChartOr", "flowChartPredefinedProcess", "flowChartPreparation", "flowChartProcess",
+    "flowChartPunchedCard", "flowChartPunchedTape", "flowChartSort", "flowChartSummingJunction",
+    "flowChartTerminator", "foldedCorner", "frame", "funnel",
+    "gear6", "gear9", "halfFrame", "heart",
+    "heptagon", "hexagon", "homePlate", "horizontalScroll",
+    "irregularSeal1", "irregularSeal2", "leftArrow", "leftArrowCallout",
+    "leftBrace", "leftBracket", "leftCircularArrow", "leftRightArrow",
+    "leftRightArrowCallout", "leftRightCircularArrow", "leftRightRibbon", "leftRightUpArrow",
+    "leftUpArrow", "lightningBolt", "line", "lineInv",
+    "mathDivide", "mathEqual", "mathMinus", "mathMultiply",
+    "mathNotEqual", "mathPlus", "moon", "noSmoking",
+    "nonIsoscelesTrapezoid", "notchedRightArrow", "octagon", "parallelogram",
+    "pentagon", "pie", "pieWedge", "plaque",
+    "plaqueTabs", "plus", "quadArrow", "quadArrowCallout",
+    "rect", "ribbon", "ribbon2", "rightArrow",
+    "rightArrowCallout", "rightBrace", "rightBracket", "round1Rect",
+    "round2DiagRect", "round2SameRect", "roundRect", "rtTriangle",
+    "smileyFace", "snip1Rect", "snip2DiagRect", "snip2SameRect",
+    "snipRoundRect", "squareTabs", "star10", "star12",
+    "star16", "star24", "star32", "star4",
+    "star5", "star6", "star7", "star8",
+    "straightConnector1", "stripedRightArrow", "sun", "swooshArrow",
+    "teardrop", "trapezoid", "triangle", "upArrow",
+    "upArrowCallout", "upDownArrow", "upDownArrowCallout", "uturnArrow",
+    "verticalScroll", "wave", "wedgeEllipseCallout", "wedgeRectCallout",
+    "wedgeRoundRectCallout",
+];
 
 fn escape(value: &str) -> String {
     value
@@ -82,8 +143,77 @@ fn transform(t: &Transform) -> String {
     }
     element("a:xfrm", attrs, children)
 }
+fn point(x: Emu, y: Emu) -> String {
+    element("a:pt", attr("x", x.0) + &attr("y", y.0), String::new())
+}
+fn command(c: &PathCommand) -> String {
+    match *c {
+        PathCommand::MoveTo { x, y } => element("a:moveTo", String::new(), point(x, y)),
+        PathCommand::LineTo { x, y } => element("a:lnTo", String::new(), point(x, y)),
+        PathCommand::QuadTo { x1, y1, x, y } => {
+            element("a:quadBezTo", String::new(), point(x1, y1) + &point(x, y))
+        }
+        PathCommand::CubicTo {
+            x1,
+            y1,
+            x2,
+            y2,
+            x,
+            y,
+        } => element(
+            "a:cubicBezTo",
+            String::new(),
+            point(x1, y1) + &point(x2, y2) + &point(x, y),
+        ),
+        PathCommand::ArcTo {
+            width_radius,
+            height_radius,
+            start_angle,
+            swing_angle,
+        } => element(
+            "a:arcTo",
+            attr("wR", width_radius.0)
+                + &attr("hR", height_radius.0)
+                + &attr("stAng", start_angle)
+                + &attr("swAng", swing_angle),
+            String::new(),
+        ),
+        PathCommand::Close {} => empty("a:close"),
+    }
+}
+fn custom_geometry(c: &CustomGeometry) -> String {
+    let paths = c
+        .paths
+        .iter()
+        .map(|p| {
+            let attrs = attr("w", p.width.0)
+                + &attr("h", p.height.0)
+                + &opt("fill", p.fill.as_ref())
+                + &if p.stroke {
+                    String::new()
+                } else {
+                    attr("stroke", 0)
+                };
+            element("a:path", attrs, p.commands.iter().map(command).collect())
+        })
+        .collect::<String>();
+    let rect = attr("l", "l") + &attr("t", "t") + &attr("r", "r") + &attr("b", "b");
+    element(
+        "a:custGeom",
+        String::new(),
+        empty("a:avLst")
+            + &empty("a:gdLst")
+            + &empty("a:ahLst")
+            + &empty("a:cxnLst")
+            + &element("a:rect", rect, String::new())
+            + &element("a:pathLst", String::new(), paths),
+    )
+}
 fn properties(p: &Properties) -> String {
     let mut content = p.transform.as_ref().map(transform).unwrap_or_default();
+    if let Some(c) = &p.custom {
+        content += &custom_geometry(c);
+    }
     if let Some(g) = &p.geometry {
         let adjustments = g
             .adjustments
@@ -227,15 +357,50 @@ fn common(o: &Object) -> String {
         attr("xmlns:dw", "urn:deckwright:source:v1") + &attr("key", &o.key),
         String::new(),
     );
+    // A video picture's click action is the media playback action (before extLst).
+    let link = match &o.kind {
+        ObjectKind::Picture { media: Some(_), .. } => element(
+            "a:hlinkClick",
+            attr("r:id", "") + &attr("action", "ppaction://media"),
+            String::new(),
+        ),
+        _ => String::new(),
+    };
     element(
         "p:cNvPr",
         attrs,
-        element(
+        link + &element(
             "a:extLst",
             String::new(),
             element("a:ext", attr("uri", "urn:deckwright:source:v1"), key),
         ),
     )
+}
+fn picture_nv_pr(media: &Option<MediaLink>) -> String {
+    match media {
+        None => empty("p:nvPr"),
+        Some(m) => {
+            let media_ext = element(
+                "p14:media",
+                attr("xmlns:p14", P14) + &attr("r:embed", &m.media_relationship),
+                String::new(),
+            );
+            let ext = element(
+                "p:ext",
+                attr("uri", "{DAA4B4D4-6D54-4E2E-8F54-EE73A2AFCE79}"),
+                media_ext,
+            );
+            element(
+                "p:nvPr",
+                String::new(),
+                element(
+                    "a:videoFile",
+                    attr("r:link", &m.video_relationship),
+                    String::new(),
+                ) + &element("p:extLst", String::new(), ext),
+            )
+        }
+    }
 }
 fn object(o: &Object) -> String {
     let nv = common(o);
@@ -290,6 +455,7 @@ fn object(o: &Object) -> String {
             lock_aspect,
             crop,
             properties: p,
+            media,
         } => {
             tag = "p:pic";
             let locks = if *lock_aspect {
@@ -300,7 +466,7 @@ fn object(o: &Object) -> String {
             content = element(
                 "p:nvPicPr",
                 String::new(),
-                nv + &element("p:cNvPicPr", String::new(), locks) + &empty("p:nvPr"),
+                nv + &element("p:cNvPicPr", String::new(), locks) + &picture_nv_pr(media),
             );
             let mut blip = element("a:blip", attr("r:embed", relationship), String::new());
             if let Some(c) = crop {
@@ -472,11 +638,20 @@ fn validate(slide: &Slide) -> Result<()> {
                 ObjectKind::Picture {
                     properties,
                     relationship,
+                    media,
                     ..
                 } => {
                     check_properties(properties, &o.key)?;
                     if relationship.is_empty() {
                         return Err(authored_error(&o.key, "picture requires relationship ID"));
+                    }
+                    if let Some(m) = media
+                        && (m.video_relationship.is_empty() || m.media_relationship.is_empty())
+                    {
+                        return Err(authored_error(
+                            &o.key,
+                            "video picture requires video and media relationship IDs",
+                        ));
                     }
                 }
                 ObjectKind::Connector {
@@ -607,10 +782,19 @@ fn check_properties(p: &Properties, key: &str) -> Result<()> {
             ));
         }
     }
+    if p.geometry.is_some() && p.custom.is_some() {
+        return Err(authored_error(
+            key,
+            "custom and preset geometry are mutually exclusive",
+        ));
+    }
     if let Some(g) = &p.geometry
-        && !["rect", "roundRect", "line"].contains(&g.preset.as_str())
+        && PRESET_GEOMETRIES.binary_search(&g.preset.as_str()).is_err()
     {
         return Err(authored_error(key, "unsupported geometry preset"));
+    }
+    if let Some(c) = &p.custom {
+        check_custom(c, key)?;
     }
     if let Some(width) = p.line.as_ref().and_then(|l| l.width) {
         range(width.0, 0, 20116800, key, "line width")?;
@@ -638,6 +822,62 @@ fn check_properties(p: &Properties, key: &str) -> Result<()> {
                 key,
                 "shadow alignment",
             )?;
+        }
+    }
+    Ok(())
+}
+
+/// Paths use ST_PositiveCoordinate for their size and ST_Coordinate for points.
+fn check_custom(c: &CustomGeometry, key: &str) -> Result<()> {
+    if c.paths.is_empty() {
+        return Err(authored_error(
+            key,
+            "custom geometry requires at least one path",
+        ));
+    }
+    for path in &c.paths {
+        let (w, h) = (path.width.0, path.height.0);
+        range(w, 1, 27273042316900, key, "path width")?;
+        range(h, 1, 27273042316900, key, "path height")?;
+        if let Some(fill) = &path.fill {
+            member(fill, PATH_FILL_MODES, key, "path fill mode")?;
+        }
+        if !matches!(path.commands.first(), Some(PathCommand::MoveTo { .. })) {
+            return Err(authored_error(key, "custom path must start with moveTo"));
+        }
+        let point = |x: Emu, y: Emu| -> Result<()> {
+            range(x.0, 0, w, key, "path x coordinate")?;
+            range(y.0, 0, h, key, "path y coordinate")
+        };
+        for command in &path.commands {
+            match *command {
+                PathCommand::MoveTo { x, y } | PathCommand::LineTo { x, y } => point(x, y)?,
+                PathCommand::QuadTo { x1, y1, x, y } => {
+                    point(x1, y1)?;
+                    point(x, y)?;
+                }
+                PathCommand::CubicTo {
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    x,
+                    y,
+                } => {
+                    point(x1, y1)?;
+                    point(x2, y2)?;
+                    point(x, y)?;
+                }
+                PathCommand::ArcTo {
+                    width_radius,
+                    height_radius,
+                    ..
+                } => {
+                    range(width_radius.0, 0, w, key, "arc width radius")?;
+                    range(height_radius.0, 0, h, key, "arc height radius")?;
+                }
+                PathCommand::Close {} => {}
+            }
         }
     }
     Ok(())
