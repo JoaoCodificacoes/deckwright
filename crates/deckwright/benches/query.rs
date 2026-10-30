@@ -221,7 +221,7 @@ fn state_plan(timeline: &Timeline) -> (Vec<u64>, u64) {
     (clicks, (sample.max(0) as u64).max(last_click))
 }
 
-/// Warmups, then timed samples. Any error skips the operation instead of panicking.
+/// Warmups, then timed samples. Any query error fails the operation instead of panicking.
 fn run(mut op: impl FnMut() -> Result<usize, String>, samples: usize, meta: Value) -> Value {
     let outcome = (|| -> Result<(Vec<u64>, usize), String> {
         for _ in 0..WARMUPS {
@@ -239,8 +239,13 @@ fn run(mut op: impl FnMut() -> Result<usize, String>, samples: usize, meta: Valu
     })();
     match outcome {
         Ok((ns, bytes)) => measured(meta, &ns, bytes),
-        Err(reason) => skipped(&reason),
+        Err(reason) => failed(&reason),
     }
+}
+
+/// A query error during measurement is a failure, never a skip.
+fn failed(reason: &str) -> Value {
+    json!({"status": "error", "reason": reason, "budget_ms": BUDGET_MS, "verdict": "fail"})
 }
 
 fn measured(mut out: Value, ns: &[u64], output_bytes: usize) -> Value {
@@ -282,7 +287,7 @@ fn bench_state(session: &QuerySession, slide_count: usize, samples: usize) -> Va
         return skipped("no slide in the deck has timing effects");
     }
     let Ok(report) = session.timeline(slide) else {
-        return skipped("state slide could not be read");
+        return failed("state slide timeline query failed");
     };
     let (clicks, sample_ms) = state_plan(&report.timing.timeline);
     let op = || -> Result<usize, String> {
@@ -307,7 +312,7 @@ fn bench_morph(session: &QuerySession, slide_count: usize, samples: usize) -> Va
         })
         .max_by_key(|&(n, from)| (n, Reverse(from)));
     let Some((matches, from)) = best else {
-        return skipped("no adjacent slide pair could be evaluated");
+        return failed("every adjacent slide pair failed the Morph query");
     };
     let op = || -> Result<usize, String> {
         let report = session
