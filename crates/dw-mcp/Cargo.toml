@@ -1,0 +1,13 @@
+[package]
+name = "dw-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "dw-mcp"
+path = "src/main.rs"
+
+[dependencies]
+deckwright = { path = "../deckwright" }
+serde_json.workspace = true
