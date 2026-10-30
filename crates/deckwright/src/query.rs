@@ -38,6 +38,12 @@ pub struct SlideSnapshot {
 pub struct QuerySession {
     slides: Vec<SlideSnapshot>,
 }
+/// Playback of a media call on one shape. Only present for shapes with a media call.
+#[derive(Clone, Copy, Debug, Serialize, PartialEq)]
+pub struct MediaState {
+    pub playing: bool,
+    pub position_ms: u64,
+}
 #[derive(Debug, Serialize)]
 pub struct ShapeState {
     pub id: u32,
@@ -49,6 +55,7 @@ pub struct ShapeState {
     pub opacity: Option<f64>,
     pub wipe_fraction: Option<f64>,
     pub geometry: Option<Geometry>,
+    pub media: Option<MediaState>,
     pub warnings: Vec<String>,
 }
 #[derive(Debug, Serialize)]
@@ -195,6 +202,7 @@ impl QuerySession {
                 opacity: Some(1.0),
                 wipe_fraction: Some(1.0),
                 geometry: x.geometry.clone(),
+                media: None,
                 warnings: x.warnings.clone(),
             })
             .collect();
@@ -261,6 +269,21 @@ impl QuerySession {
             .filter_map(|(effect, begin)| begin.filter(|b| *b <= now).map(|b| (b, *effect)))
             .collect();
         started.sort_by_key(|(begin, _)| *begin);
+        // Media playback: every shape with a media call starts idle; the latest-begun started call wins.
+        let mut media: Vec<Option<MediaState>> = shapes
+            .iter()
+            .map(|x| {
+                scheduled
+                    .iter()
+                    .any(|(e, _)| {
+                        e.target == x.id && matches!(e.kind, EffectKind::MediaPlay { .. })
+                    })
+                    .then_some(MediaState {
+                        playing: false,
+                        position_ms: 0,
+                    })
+            })
+            .collect();
         for (begin, effect) in started {
             let Some(i) = shapes.iter().position(|x| x.id == effect.target) else {
                 continue;
@@ -268,6 +291,13 @@ impl QuerySession {
             let track = &mut tracks[i];
             let active = now < begin + i128::from(effect.duration_ms);
             let p = progress(begin, effect, now);
+            if let EffectKind::MediaPlay { from_ms, .. } = effect.kind {
+                let elapsed = (now - begin).min(i128::from(effect.duration_ms));
+                media[i] = Some(MediaState {
+                    playing: active,
+                    position_ms: u64::from(from_ms) + elapsed as u64,
+                });
+            }
             match effect.kind {
                 EffectKind::Appear | EffectKind::FadeIn | EffectKind::WipeIn { .. } => {
                     track.visible = true;
@@ -277,7 +307,9 @@ impl QuerySession {
                     track.visible = active;
                     track.timing_hidden = !active;
                 }
-                EffectKind::Motion { .. } | EffectKind::Scale { .. } => {}
+                EffectKind::Motion { .. }
+                | EffectKind::Scale { .. }
+                | EffectKind::MediaPlay { .. } => {}
             }
             if active {
                 match effect.kind {
@@ -296,6 +328,9 @@ impl QuerySession {
                 track.fade.unwrap_or(1.0)
             });
             shape.wipe_fraction = Some(track.wipe);
+        }
+        for (shape, m) in shapes.iter_mut().zip(media) {
+            shape.media = m;
         }
         // Rule 6: started motion is additive and applied in document order; pending motion does nothing.
         for (effect, begin) in &scheduled {
@@ -344,6 +379,7 @@ impl QuerySession {
                     shape.opacity = None;
                     shape.wipe_fraction = None;
                     shape.geometry = None;
+                    shape.media = None;
                     shape.warnings.push(opaque.reason.clone());
                 }
             }
