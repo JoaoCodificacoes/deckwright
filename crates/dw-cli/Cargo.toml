@@ -9,3 +9,5 @@ path = "src/main.rs"
 [dependencies]
 deckwright = { path = "../deckwright" }
 serde_json.workspace = true
+[dev-dependencies]
+zip = { version = "2.4", default-features = false, features = ["deflate"] }

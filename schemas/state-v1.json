@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "required": [
+    "schema_version",
+    "sample_time_ms",
+    "revision",
+    "shapes",
+    "warnings",
+    "schema",
+    "slide",
+    "clicks_ms"
+  ],
+  "additionalProperties": false,
+  "title": "state report v1",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "sample_time_ms": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "revision": {
+      "const": 1
+    },
+    "shapes": {
+      "type": "array",
+      "items": {
+        "required": [
+          "visible",
+          "parent",
+          "name",
+          "id",
+          "z_order",
+          "warnings",
+          "opacity",
+          "text",
+          "wipe_fraction",
+          "geometry"
+        ],
+        "additionalProperties": false,
+        "type": "object",
+        "properties": {
+          "visible": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "parent": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "z_order": {
+            "type": "integer"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "opacity": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "wipe_fraction": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "geometry": {
+            "required": [
+              "x",
+              "y",
+              "width",
+              "height"
+            ],
+            "additionalProperties": false,
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "height": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "width": {
+                "type": "number"
+              },
+              "x": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "schema": {
+      "const": "dw.query.state/1"
+    },
+    "slide": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "clicks_ms": {
+      "type": "array",
+      "items": {
+        "minimum": 0,
+        "type": "integer"
+      }
+    }
+  }
+}

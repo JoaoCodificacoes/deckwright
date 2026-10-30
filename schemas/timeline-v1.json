@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "required": [
+    "timing",
+    "schema",
+    "schema_version",
+    "revision",
+    "slide"
+  ],
+  "additionalProperties": false,
+  "title": "timeline report v1",
+  "type": "object",
+  "properties": {
+    "timing": {
+      "required": [
+        "timeline",
+        "transition",
+        "opaque"
+      ],
+      "type": "object",
+      "properties": {
+        "transition": {
+          "required": [
+            "type"
+          ],
+          "type": "object",
+          "properties": {
+            "duration_ms": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "type": {
+              "enum": [
+                "none",
+                "fade",
+                "morph"
+              ]
+            }
+          }
+        },
+        "timeline": {
+          "required": [
+            "stages"
+          ],
+          "type": "object",
+          "properties": {
+            "stages": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "trigger",
+                  "delay_ms",
+                  "effects"
+                ],
+                "properties": {
+                  "trigger": {
+                    "enum": [
+                      "on_click",
+                      "with_previous",
+                      "after_previous",
+                      "on_slide_start"
+                    ]
+                  },
+                  "effects": {
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "target",
+                        "delay_ms",
+                        "duration_ms",
+                        "kind"
+                      ],
+                      "properties": {
+                        "target": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "duration_ms": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "delay_ms": {
+                          "type": "integer"
+                        },
+                        "kind": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "type"
+                          ],
+                          "properties": {
+                            "to_y": {
+                              "type": "number"
+                            },
+                            "to_x": {
+                              "type": "number"
+                            },
+                            "decelerate": {
+                              "type": "number",
+                              "maximum": 1,
+                              "minimum": 0
+                            },
+                            "from_y": {
+                              "type": "number"
+                            },
+                            "from_x": {
+                              "type": "number"
+                            },
+                            "type": {
+                              "enum": [
+                                "appear",
+                                "fade_in",
+                                "wipe_in",
+                                "fade_out",
+                                "motion"
+                              ]
+                            },
+                            "accelerate": {
+                              "type": "number",
+                              "maximum": 1,
+                              "minimum": 0
+                            },
+                            "direction": {
+                              "enum": [
+                                "left",
+                                "right",
+                                "up",
+                                "down"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "type": "array"
+                  },
+                  "delay_ms": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "opaque": {
+          "type": "array"
+        }
+      }
+    },
+    "schema": {
+      "const": "dw.query.timeline/1"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "revision": {
+      "const": 1
+    },
+    "slide": {
+      "minimum": 1,
+      "type": "integer"
+    }
+  }
+}
