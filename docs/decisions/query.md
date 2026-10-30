@@ -86,7 +86,11 @@ recordings confirm them, they are coordinator decisions, not observed facts.
    not hold its opacity, so a shape revealed after an exit is fully opaque.
 5. **Wipe.** The latest-begun active `WipeIn` sets `wipe_fraction` to p.
    Otherwise it is 1, including while a pending wipe keeps the shape hidden.
-6. **Motion** is unchanged. Offsets are additive, the static transform is the
-   resting endpoint, and a pending motion sits at its start offset.
+6. **Motion.** Offsets of started motions are additive, and the static
+   transform is the resting endpoint. A motion that has not started does
+   nothing, like any other effect (rule 1). The shape stays at its static
+   position until the motion begins, then jumps to the path start. Earlier
+   versions placed a pending motion at its start offset; the neutral Morph
+   demo showed that contradicts rule 1 and expected PowerPoint behaviour.
 7. Unchanged as well: opaque timing, `hidden` shapes, parent propagation and
    effects at `p` from `[0,1]` clamped at the end.

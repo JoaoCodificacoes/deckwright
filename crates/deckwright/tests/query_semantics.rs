@@ -189,3 +189,27 @@ fn same_begin_ties_apply_in_document_order() {
     );
     assert_eq!(look(&s, &[0], 5, 7).visible, Some(false));
 }
+
+#[test]
+fn pending_motion_leaves_shape_at_its_static_position() {
+    let motion = EffectKind::Motion {
+        from_x: -0.5,
+        from_y: 0.25,
+        to_x: 0.0,
+        to_y: 0.0,
+        accelerate: 0.0,
+        decelerate: 0.0,
+    };
+    let s = session(&[5], vec![click(vec![effect(5, motion, 0, 1000)])]);
+    let x = |clicks: &[u64], t| {
+        let g = look(&s, clicks, t, 5).geometry.unwrap();
+        (g.x, g.y)
+    };
+    // Before the click the motion has not started: static position.
+    assert_eq!(x(&[], 0), (0.0, 0.0));
+    assert_eq!(x(&[], 5000), (0.0, 0.0));
+    // It jumps to the path start when it begins, then ends at the static position.
+    assert_eq!(x(&[1000], 1000), (-500.0, 125.0));
+    assert_eq!(x(&[1000], 1500), (-250.0, 62.5));
+    assert_eq!(x(&[1000], 3000), (0.0, 0.0));
+}

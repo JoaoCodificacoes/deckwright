@@ -134,7 +134,7 @@ fn reference(
     if !visible {
         opacity = 0.0;
     }
-    // Motion offsets add up from the resting endpoint; a pending motion sits at `from`.
+    // Started motion offsets add up from the resting endpoint; a pending motion does nothing.
     let mut g = shape
         .geometry
         .clone()
@@ -148,9 +148,10 @@ fn reference(
             ..
         } = e.kind
         {
-            let p = b
-                .filter(|b| *b <= t)
-                .map_or(0.0, |b| progress(t - b, e.duration_ms));
+            let Some(b) = b.filter(|b| *b <= t) else {
+                continue;
+            };
+            let p = progress(t - b, e.duration_ms);
             let k = 1.0 - eased(p, accelerate, decelerate);
             g.x += from_x * k * W;
             g.y += from_y * k * H;

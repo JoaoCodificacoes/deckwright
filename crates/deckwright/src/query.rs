@@ -294,7 +294,7 @@ impl QuerySession {
             });
             shape.wipe_fraction = Some(track.wipe);
         }
-        // Rule 6: motion is additive and applied in document order; pending motion sits at its start.
+        // Rule 6: started motion is additive and applied in document order; pending motion does nothing.
         for (effect, begin) in &scheduled {
             if let EffectKind::Motion {
                 from_x,
@@ -306,10 +306,10 @@ impl QuerySession {
             } = &effect.kind
                 && let Some(shape) = shapes.iter_mut().find(|x| x.id == effect.target)
             {
-                let p = begin
-                    .filter(|b| *b <= now)
-                    .map_or(0.0, |b| progress(b, effect, now));
-                let p = ease(p, *accelerate, *decelerate);
+                let Some(b) = begin.filter(|b| *b <= now) else {
+                    continue;
+                };
+                let p = ease(progress(b, effect, now), *accelerate, *decelerate);
                 if let Some(g) = shape.geometry.as_mut() {
                     g.x += (from_x + (to_x - from_x) * p - to_x) * s.width;
                     g.y += (from_y + (to_y - from_y) * p - to_y) * s.height;
