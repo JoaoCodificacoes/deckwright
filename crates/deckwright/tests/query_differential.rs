@@ -120,7 +120,8 @@ fn reference(
         match e.kind {
             EffectKind::Appear | EffectKind::FadeIn | EffectKind::WipeIn { .. } => visible = true,
             EffectKind::FadeOut => visible = p < 1.0,
-            EffectKind::Motion { .. } | EffectKind::Scale { .. } => {}
+            EffectKind::Motion { .. } | EffectKind::Scale { .. } | EffectKind::MediaPlay { .. } => {
+            }
         }
         if active {
             match e.kind {

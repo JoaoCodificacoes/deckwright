@@ -56,6 +56,13 @@ pub enum EffectKind {
         repeat: Repeat,
         auto_reverse: bool,
     },
+    /// PowerPoint media call (`presetClass="mediacall" presetID="1"`). Plays a video or audio
+    /// picture from `from_ms` for `Effect.duration_ms`. `volume` is in thousandths of a percent.
+    /// See docs/decisions/timing.md.
+    MediaPlay {
+        from_ms: u32,
+        volume: u32,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
@@ -135,7 +142,7 @@ use crate::{
     model::{Object, ObjectKind, Slide},
     xml::Node,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 const P: &str = "http://schemas.openxmlformats.org/presentationml/2006/main";
 fn bad(part: &str, message: impl Into<String>) -> Error {
     Error::InvalidPart {
@@ -174,6 +181,14 @@ pub fn validate_timeline(timeline: &Timeline) -> Result<()> {
                     "scale requires finite factors in (0, 10] and a repeat count of 1..=1000000 thousandths",
                 ));
             }
+            if let EffectKind::MediaPlay { from_ms, volume } = e.kind
+                && (from_ms % 100 != 0 || volume > 100_000)
+            {
+                return Err(bad(
+                    "timing",
+                    "media call requires from_ms in whole tenths of a second and volume 0..=100000",
+                ));
+            }
             if let EffectKind::Motion {
                 from_x,
                 from_y,
@@ -197,6 +212,16 @@ pub fn validate_timeline(timeline: &Timeline) -> Result<()> {
                     "motion requires finite coordinates within 100 slide units and easing fractions summing to <=1",
                 ));
             }
+        }
+    }
+    let mut volumes = BTreeMap::new();
+    for e in timeline.stages.iter().flat_map(|s| &s.effects) {
+        if let EffectKind::MediaPlay { volume, .. } = e.kind
+            && volumes
+                .insert(e.target, volume)
+                .is_some_and(|v| v != volume)
+        {
+            return Err(bad("timing", "media calls on one target need one volume"));
         }
     }
     Ok(())
@@ -238,6 +263,7 @@ fn effect_xml(e: &Effect, id: &mut u32, node_type: &str) -> String {
         EffectKind::FadeOut => (10, "exit"),
         EffectKind::Motion { .. } => (0, "path"),
         EffectKind::Scale { .. } => (6, "emph"),
+        EffectKind::MediaPlay { .. } => (1, "mediacall"),
         _ => (10, "entr"),
     };
     let repeat = if let EffectKind::Scale {
@@ -316,6 +342,14 @@ fn effect_xml(e: &Effect, id: &mut u32, node_type: &str) -> String {
                 "<p:animScale>{bhvr}<p:by x=\"{}\" y=\"{}\"/></p:animScale>",
                 scale_units(x),
                 scale_units(y)
+            )
+        }
+        EffectKind::MediaPlay { from_ms, .. } => {
+            // from_ms is a whole number of tenths of a second, so the seconds are exact.
+            children += &format!(
+                "<p:cmd type=\"call\" cmd=\"playFrom({}.{})\">{bhvr}</p:cmd>",
+                from_ms / 1000,
+                (from_ms % 1000) / 100
             )
         }
         _ => {
@@ -467,11 +501,27 @@ pub fn compile_animated_slide(
             builds.insert((e.target, matches!(e.kind, EffectKind::FadeOut) as u8));
         }
     }
+    // One media node per target, after the main sequence, in target order.
+    let mut media_volumes = BTreeMap::new();
+    for e in timeline.stages.iter().flat_map(|s| &s.effects) {
+        if let EffectKind::MediaPlay { volume, .. } = e.kind {
+            media_volumes.insert(e.target, volume);
+        }
+    }
+    let media = media_volumes
+        .iter()
+        .map(|(target, volume)| {
+            let n = ct(&mut id);
+            format!(
+                "<p:video><p:cMediaNode vol=\"{volume}\"><p:cTn id=\"{n}\" fill=\"hold\" display=\"0\"><p:stCondLst><p:cond delay=\"indefinite\"/></p:stCondLst></p:cTn><p:tgtEl><p:spTgt spid=\"{target}\"/></p:tgtEl></p:cMediaNode></p:video>"
+            )
+        })
+        .collect::<String>();
     let timing = if body.is_empty() {
         String::new()
     } else {
         format!(
-            "<p:timing><p:tnLst><p:par><p:cTn id=\"1\" dur=\"indefinite\" restart=\"never\" nodeType=\"tmRoot\"><p:childTnLst><p:seq concurrent=\"1\" nextAc=\"seek\"><p:cTn id=\"2\" dur=\"indefinite\" nodeType=\"mainSeq\"><p:childTnLst>{body}</p:childTnLst></p:cTn><p:prevCondLst><p:cond evt=\"onPrev\" delay=\"0\"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst><p:nextCondLst><p:cond evt=\"onNext\" delay=\"0\"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst></p:seq></p:childTnLst></p:cTn></p:par></p:tnLst><p:bldLst>{}</p:bldLst></p:timing>",
+            "<p:timing><p:tnLst><p:par><p:cTn id=\"1\" dur=\"indefinite\" restart=\"never\" nodeType=\"tmRoot\"><p:childTnLst><p:seq concurrent=\"1\" nextAc=\"seek\"><p:cTn id=\"2\" dur=\"indefinite\" nodeType=\"mainSeq\"><p:childTnLst>{body}</p:childTnLst></p:cTn><p:prevCondLst><p:cond evt=\"onPrev\" delay=\"0\"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst><p:nextCondLst><p:cond evt=\"onNext\" delay=\"0\"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst></p:seq>{media}</p:childTnLst></p:cTn></p:par></p:tnLst><p:bldLst>{}</p:bldLst></p:timing>",
             builds
                 .iter()
                 .map(|(target, group)| format!(
@@ -521,12 +571,144 @@ fn opaque(n: &Node, reason: impl Into<String>) -> OpaqueTiming {
         reason: reason.into(),
     }
 }
-fn read_effect(n: &Node, offset: i64, part: &str) -> Result<Effect> {
+fn is_p(n: &Node, name: &str) -> bool {
+    n.name == name && n.namespace == P
+}
+/// `n` is the presentationML element `name` with exactly these attributes and child count.
+fn exact(n: &Node, name: &str, keys: &[&str], children: usize) -> bool {
+    is_p(n, name)
+        && n.attrs.len() == keys.len()
+        && n.children.len() == children
+        && keys.iter().all(|k| n.attrs.contains_key(*k))
+}
+/// A `p:video` node placed after the main sequence: its target and volume. It must match
+/// `compile_animated_slide` exactly, with no other attributes or children.
+fn media_node(v: &Node, part: &str) -> Result<(u32, u32)> {
+    let fail = || bad(part, "invalid media node");
+    let [m] = v.children.as_slice() else {
+        return Err(fail());
+    };
+    let [timer, tgt] = m.children.as_slice() else {
+        return Err(fail());
+    };
+    let [st] = timer.children.as_slice() else {
+        return Err(fail());
+    };
+    let [cond] = st.children.as_slice() else {
+        return Err(fail());
+    };
+    let [sp] = tgt.children.as_slice() else {
+        return Err(fail());
+    };
+    let ok = v.attrs.is_empty()
+        && exact(m, "cMediaNode", &["vol"], 2)
+        && exact(timer, "cTn", &["id", "fill", "display"], 1)
+        && attr(timer, "fill") == Some("hold")
+        && attr(timer, "display") == Some("0")
+        && exact(st, "stCondLst", &[], 1)
+        && exact(cond, "cond", &["delay"], 0)
+        && attr(cond, "delay") == Some("indefinite")
+        && exact(tgt, "tgtEl", &[], 1)
+        && exact(sp, "spTgt", &["spid"], 0);
+    if !ok {
+        return Err(fail());
+    }
+    Ok((number(sp, "spid", part)?, number(m, "vol", part)?))
+}
+/// A media call: exactly one `playFrom(s.t)` command on the target, in the form the compiler
+/// writes. The volume comes from that target's `p:video` node.
+fn media_call(
+    n: &Node,
+    target: u32,
+    volumes: &BTreeMap<u32, u32>,
+    part: &str,
+) -> Result<(EffectKind, u32)> {
+    let malformed = || bad(part, "malformed media call");
+    if n.descendants("cmd").count() != 1
+        || ["animEffect", "animMotion", "animScale", "set"]
+            .iter()
+            .any(|k| n.descendants(k).next().is_some())
+    {
+        return Err(malformed());
+    }
+    let cmd = child(n, "childTnLst")
+        .and_then(|l| child(l, "cmd"))
+        .ok_or_else(malformed)?;
+    let [b] = cmd.children.as_slice() else {
+        return Err(malformed());
+    };
+    let [timer, tgt] = b.children.as_slice() else {
+        return Err(malformed());
+    };
+    if !exact(cmd, "cmd", &["type", "cmd"], 1)
+        || attr(cmd, "type") != Some("call")
+        || !exact(b, "cBhvr", &[], 2)
+        || !exact(timer, "cTn", &["id", "dur", "fill"], 0)
+        || attr(timer, "fill") != Some("hold")
+        || !exact(tgt, "tgtEl", &[], 1)
+    {
+        return Err(malformed());
+    }
+    let (secs, tenth) = attr(cmd, "cmd")
+        .and_then(|c| c.strip_prefix("playFrom(")?.strip_suffix(')'))
+        .and_then(|c| c.split_once('.'))
+        .filter(|(_, t)| t.len() == 1 && t.bytes().all(|b| b.is_ascii_digit()))
+        .ok_or_else(malformed)?;
+    let from_ms = secs
+        .parse::<u32>()
+        .ok()
+        .and_then(|s| s.checked_mul(1000))
+        .and_then(|ms| ms.checked_add(100 * u32::from(tenth.as_bytes()[0] - b'0')))
+        .ok_or_else(malformed)?;
+    // Only the canonical spelling is accepted, so every accepted file recompiles identically.
+    let canonical = format!("playFrom({}.{})", from_ms / 1000, (from_ms % 1000) / 100);
+    if attr(cmd, "cmd") != Some(canonical.as_str()) {
+        return Err(malformed());
+    }
+    let volume = *volumes
+        .get(&target)
+        .ok_or_else(|| bad(part, "media call has no matching p:video node"))?;
+    Ok((
+        EffectKind::MediaPlay { from_ms, volume },
+        number(timer, "dur", part)?,
+    ))
+}
+/// Opaque entries for `p:video` nodes that are malformed, duplicated for one target, or not used
+/// by a media call in the parsed timeline.
+fn media_problems(
+    placed: &[&Node],
+    media: &[Result<(u32, u32)>],
+    timeline: &Timeline,
+) -> Vec<OpaqueTiming> {
+    let mut counts = BTreeMap::<u32, usize>::new();
+    for (target, _) in media.iter().flatten() {
+        *counts.entry(*target).or_default() += 1;
+    }
+    let used: BTreeSet<u32> = timeline
+        .stages
+        .iter()
+        .flat_map(|s| &s.effects)
+        .filter(|e| matches!(e.kind, EffectKind::MediaPlay { .. }))
+        .map(|e| e.target)
+        .collect();
+    placed
+        .iter()
+        .zip(media)
+        .filter_map(|(v, m)| match m {
+            Err(e) => Some(opaque(v, e.to_string())),
+            Ok((t, _)) if counts[t] > 1 => Some(opaque(v, "duplicate media timing for one target")),
+            Ok((t, _)) if !used.contains(t) => Some(opaque(v, "media timing without a media call")),
+            Ok(_) => None,
+        })
+        .collect()
+}
+fn read_effect(n: &Node, offset: i64, part: &str, volumes: &BTreeMap<u32, u32>) -> Result<Effect> {
     let supported = match attr(n, "presetClass") {
         Some("entr") => matches!(attr(n, "presetID"), Some("1" | "10" | "22")),
         Some("exit") => attr(n, "presetID") == Some("10"),
         Some("path") => attr(n, "presetID") == Some("0"),
         Some("emph") => attr(n, "presetID") == Some("6"),
+        Some("mediacall") => attr(n, "presetID") == Some("1"),
         _ => false,
     };
     if !supported {
@@ -544,7 +726,9 @@ fn read_effect(n: &Node, offset: i64, part: &str) -> Result<Effect> {
     }
     let motion = n.descendants("animMotion").next();
     let anim = n.descendants("animEffect").next();
-    let (kind, duration) = if let Some(m) = motion {
+    let (kind, duration) = if attr(n, "presetClass") == Some("mediacall") {
+        media_call(n, target, volumes, part)?
+    } else if let Some(m) = motion {
         if attr(m, "origin") != Some("layout") || attr(m, "pathEditMode") != Some("relative") {
             return Err(bad(part, "unsupported motion coordinate origin"));
         }
@@ -665,6 +849,7 @@ fn source_effects(
     part: &str,
     effects: &mut Vec<Effect>,
     unknown: &mut Vec<OpaqueTiming>,
+    volumes: &BTreeMap<u32, u32>,
 ) -> Result<()> {
     let offset = if n.name == "cTn" {
         offset
@@ -674,14 +859,14 @@ fn source_effects(
         offset
     };
     if n.name == "cTn" && attr(n, "presetID").is_some() {
-        match read_effect(n, offset, part) {
+        match read_effect(n, offset, part, volumes) {
             Ok(e) => effects.push(e),
             Err(e) => unknown.push(opaque(n, e.to_string())),
         };
         return Ok(());
     }
     for c in &n.children {
-        source_effects(c, offset, part, effects, unknown)?;
+        source_effects(c, offset, part, effects, unknown, volumes)?;
     }
     Ok(())
 }
@@ -736,35 +921,53 @@ pub fn parse_slide_timing(xml: &[u8], part: &str) -> Result<ParsedTiming> {
     let Some(timing) = root.descendants("timing").next() else {
         return Ok(result);
     };
-    fn inspect(n: &Node, parent: &str, unknown: &mut Vec<OpaqueTiming>) {
-        let allowed = matches!(
-            n.name.as_str(),
-            "timing"
-                | "tnLst"
-                | "par"
-                | "seq"
-                | "cTn"
-                | "childTnLst"
-                | "stCondLst"
-                | "cond"
-                | "tn"
-                | "tgtEl"
-                | "sldTgt"
-                | "spTgt"
-                | "cBhvr"
-                | "attrNameLst"
-                | "attrName"
-                | "set"
-                | "to"
-                | "strVal"
-                | "animEffect"
-                | "animMotion"
-                | "animScale"
-                | "prevCondLst"
-                | "nextCondLst"
-                | "bldLst"
-                | "bldP"
-        ) || (n.name == "by" && parent == "animScale");
+    fn inspect<'a>(
+        n: &'a Node,
+        stack: &mut Vec<&'a Node>,
+        placed: &[&Node],
+        unknown: &mut Vec<OpaqueTiming>,
+    ) {
+        // Placed media nodes are validated by `media_node`, so their contents are not inspected.
+        if is_p(n, "video") && placed.iter().any(|p| std::ptr::eq(*p, n)) {
+            return;
+        }
+        let parent = stack.last().map_or("", |p| p.name.as_str());
+        // A media command is only valid directly inside a media call effect.
+        let media_cmd = n.name == "cmd"
+            && parent == "childTnLst"
+            && stack.len() >= 2
+            && stack[stack.len() - 2].name == "cTn"
+            && attr(stack[stack.len() - 2], "presetClass") == Some("mediacall");
+        let allowed = media_cmd
+            || matches!(
+                n.name.as_str(),
+                "timing"
+                    | "tnLst"
+                    | "par"
+                    | "seq"
+                    | "cTn"
+                    | "childTnLst"
+                    | "stCondLst"
+                    | "cond"
+                    | "tn"
+                    | "tgtEl"
+                    | "sldTgt"
+                    | "spTgt"
+                    | "cBhvr"
+                    | "attrNameLst"
+                    | "attrName"
+                    | "set"
+                    | "to"
+                    | "strVal"
+                    | "animEffect"
+                    | "animMotion"
+                    | "animScale"
+                    | "prevCondLst"
+                    | "nextCondLst"
+                    | "bldLst"
+                    | "bldP"
+            )
+            || (n.name == "by" && parent == "animScale");
         if n.namespace != P || !allowed {
             unknown.push(opaque(n, format!("unsupported timing element {}", n.name)));
             return;
@@ -808,11 +1011,37 @@ pub fn parse_slide_timing(xml: &[u8], part: &str) -> Result<ParsedTiming> {
         if n.name == "spTgt" && !n.children.is_empty() {
             unknown.push(opaque(n, "text/subshape targets are unsupported"));
         }
+        stack.push(n);
         for c in &n.children {
-            inspect(c, &n.name, unknown);
+            inspect(c, stack, placed, unknown);
         }
+        stack.pop();
     }
-    inspect(timing, "", &mut result.opaque);
+    // Media nodes must follow the main sequence in the root time node.
+    let placed: Vec<&Node> = timing
+        .descendants("cTn")
+        .find(|n| attr(n, "nodeType") == Some("tmRoot"))
+        .and_then(|n| child(n, "childTnLst"))
+        .map(|l| {
+            l.children
+                .iter()
+                .skip_while(|c| c.name != "seq")
+                .filter(|c| is_p(c, "video"))
+                .collect()
+        })
+        .unwrap_or_default();
+    inspect(timing, &mut Vec::new(), &placed, &mut result.opaque);
+    let media: Vec<Result<(u32, u32)>> = placed.iter().map(|v| media_node(v, part)).collect();
+    let mut counts = BTreeMap::<u32, usize>::new();
+    for (target, _) in media.iter().flatten() {
+        *counts.entry(*target).or_default() += 1;
+    }
+    let volumes: BTreeMap<u32, u32> = media
+        .iter()
+        .flatten()
+        .filter(|(t, _)| counts[t] == 1)
+        .copied()
+        .collect();
     let mut ids = BTreeSet::new();
     for n in timing.descendants("cTn") {
         let id: u32 = number(n, "id", part)?;
@@ -837,6 +1066,9 @@ pub fn parse_slide_timing(xml: &[u8], part: &str) -> Result<ParsedTiming> {
         result
             .opaque
             .push(opaque(timing, "missing supported main sequence"));
+        result
+            .opaque
+            .extend(media_problems(&placed, &media, &result.timeline));
         return Ok(result);
     };
     let mut previous_end = Some(0_i64);
@@ -870,7 +1102,7 @@ pub fn parse_slide_timing(xml: &[u8], part: &str) -> Result<ParsedTiming> {
             == Some("indefinite");
         if indefinite {
             let mut effects = Vec::new();
-            source_effects(n, 0, part, &mut effects, &mut result.opaque)?;
+            source_effects(n, 0, part, &mut effects, &mut result.opaque, &volumes)?;
             if !effects.is_empty() {
                 result.timeline.stages.push(Stage {
                     trigger: Trigger::OnClick,
@@ -916,7 +1148,7 @@ pub fn parse_slide_timing(xml: &[u8], part: &str) -> Result<ParsedTiming> {
         let mut effects = Vec::new();
         if let Some(children) = child(n, "childTnLst") {
             for c in &children.children {
-                source_effects(c, 0, part, &mut effects, &mut result.opaque)?;
+                source_effects(c, 0, part, &mut effects, &mut result.opaque, &volumes)?;
             }
         }
         if !effects.is_empty() {
@@ -928,6 +1160,9 @@ pub fn parse_slide_timing(xml: &[u8], part: &str) -> Result<ParsedTiming> {
             });
         }
     }
+    result
+        .opaque
+        .extend(media_problems(&placed, &media, &result.timeline));
     // Effects outside the supported preset containers must never disappear silently.
     let covered = result
         .timeline
