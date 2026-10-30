@@ -1,7 +1,7 @@
 use deckwright::{Limits, Package, query::QuerySession, session::Server};
 use std::io::{BufRead, Write};
 use std::{collections::HashMap, str::FromStr};
-const USAGE: &str = "usage: dw inspect <pptx> --json | dw roundtrip <input> --output <new-output> | dw check <pptx> --json | dw query state <pptx> --slide <N> --at-ms <T> [--clicks-ms <t1,t2,...>] --json | dw query timeline <pptx> --slide <N> --json | dw query morph <pptx> --from <N> --to <M> --json | dw serve [--max-open <N>]";
+const USAGE: &str = "usage: dw inspect <pptx> --json | dw roundtrip <input> --output <new-output> | dw check <pptx> --json [--suppress RULE[@SLIDE[:SHAPE]]]... | dw query state <pptx> --slide <N> --at-ms <T> [--clicks-ms <t1,t2,...>] --json | dw query timeline <pptx> --slide <N> --json | dw query morph <pptx> --from <N> --to <M> --json | dw serve [--max-open <N>]";
 fn uint<T: FromStr>(name: &str, s: &str) -> Result<T, String> {
     if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
         return Err(format!("{name} expects a base-10 integer, got {s:?}"));
@@ -14,6 +14,66 @@ fn required<'a>(values: &HashMap<&str, &'a str>, name: &str) -> Result<&'a str, 
         .get(name)
         .copied()
         .ok_or_else(|| format!("missing required {name}"))
+}
+/// Arguments after `dw check <pptx>`: `--json` once, and any number of `--suppress`.
+fn check_args(rest: &[String]) -> Result<Vec<deckwright::check::Suppression>, String> {
+    let mut json = false;
+    let mut suppressions = Vec::new();
+    let mut i = 0;
+    while i < rest.len() {
+        match rest[i].as_str() {
+            "--json" if json => return Err("duplicate flag --json".into()),
+            "--json" => {
+                json = true;
+                i += 1;
+            }
+            "--suppress" => {
+                let value = rest
+                    .get(i + 1)
+                    .ok_or_else(|| "missing value for --suppress".to_owned())?;
+                suppressions.push(parse_suppress(value)?);
+                i += 2;
+            }
+            _ => return Err(USAGE.into()),
+        }
+    }
+    if !json {
+        return Err("--json is required".into());
+    }
+    Ok(suppressions)
+}
+/// `RULE[@SLIDE[:SHAPE]]`, with a one-based slide. Rule and shape must be non-empty.
+fn parse_suppress(value: &str) -> Result<deckwright::check::Suppression, String> {
+    let malformed = || format!("--suppress expects RULE[@SLIDE[:SHAPE]], got {value:?}");
+    let (rule, place) = match value.split_once('@') {
+        None => (value, None),
+        Some((rule, place)) => (rule, Some(place)),
+    };
+    if rule.is_empty() || rule.contains(':') {
+        return Err(malformed());
+    }
+    let (slide, shape) = match place {
+        None => (None, None),
+        Some(place) => {
+            let (slide, shape) = match place.split_once(':') {
+                None => (place, None),
+                Some((slide, shape)) => (slide, Some(shape)),
+            };
+            if shape.is_some_and(|s| s.is_empty() || s.contains(':')) {
+                return Err(malformed());
+            }
+            let number = uint::<usize>("--suppress slide", slide).map_err(|_| malformed())?;
+            if number == 0 {
+                return Err(malformed());
+            }
+            (Some(number), shape.map(str::to_owned))
+        }
+    };
+    Ok(deckwright::check::Suppression {
+        rule: rule.to_owned(),
+        slide,
+        shape,
+    })
 }
 // Takes a fully serialized report so a failure never leaves partial stdout.
 fn emit(text: serde_json::Result<String>) -> Result<(), Box<dyn std::error::Error>> {
@@ -116,8 +176,10 @@ fn run() -> Result<i32, Box<dyn std::error::Error>> {
             }
             Package::open(input, Limits::default())?.write(output)?;
         }
-        [cmd, input, json] if cmd == "check" && json == "--json" => {
-            let report = deckwright::check::check_path(input, Limits::default());
+        [cmd, input, rest @ ..] if cmd == "check" && !input.starts_with("--") => {
+            let suppressions = check_args(rest)?;
+            let report =
+                deckwright::check::check_path_with(input, Limits::default(), &suppressions);
             serde_json::to_writer(std::io::stdout().lock(), &report)?;
             println!();
             return Ok(i32::from(report.has_errors()));

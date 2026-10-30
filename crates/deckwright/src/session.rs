@@ -123,6 +123,59 @@ fn index(request: &Map<String, Value>, name: &str) -> std::result::Result<usize,
     Ok(usize::try_from(number(request, name)?).unwrap_or(usize::MAX))
 }
 
+/// Optional `suppress` array for `check`: entries are `{rule, slide?, shape?}`, with a
+/// one-based slide. Absent or null means no suppressions.
+fn parse_suppressions(
+    request: &Map<String, Value>,
+) -> std::result::Result<Vec<check::Suppression>, Fail> {
+    let entries = match request.get("suppress") {
+        None | Some(Value::Null) => return Ok(vec![]),
+        Some(Value::Array(entries)) => entries,
+        Some(_) => return Err(fail("parse", "suppress must be an array")),
+    };
+    entries
+        .iter()
+        .map(|entry| -> std::result::Result<check::Suppression, Fail> {
+            let object = entry
+                .as_object()
+                .ok_or_else(|| fail("parse", "each suppress entry must be an object"))?;
+            if let Some(key) = object
+                .keys()
+                .find(|key| !matches!(key.as_str(), "rule" | "slide" | "shape"))
+            {
+                return Err(fail("parse", format!("unknown suppress field {key}")));
+            }
+            let rule = object
+                .get("rule")
+                .and_then(Value::as_str)
+                .filter(|rule| !rule.is_empty())
+                .ok_or_else(|| fail("parse", "suppress rule must be a non-empty string"))?;
+            let slide = match object.get("slide") {
+                None | Some(Value::Null) => None,
+                Some(value) => Some(
+                    value
+                        .as_u64()
+                        .filter(|n| *n >= 1)
+                        .and_then(|n| usize::try_from(n).ok())
+                        .ok_or_else(|| {
+                            fail("parse", "suppress slide must be a one-based integer")
+                        })?,
+                ),
+            };
+            let shape = match object.get("shape") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(id)) if !id.is_empty() => Some(id.clone()),
+                Some(_) => return Err(fail("parse", "suppress shape must be a non-empty string")),
+            };
+            Ok(check::Suppression {
+                rule: rule.to_owned(),
+                slide,
+                shape,
+            })
+        })
+        .collect()
+}
+
 fn clicks(request: &Map<String, Value>) -> std::result::Result<Vec<u64>, Fail> {
     match request.get("clicks_ms") {
         None => Ok(vec![]),
@@ -244,7 +297,15 @@ impl Server {
                     query_report(e.session.morph(from, to), e.revision)
                 })
             }
-            "check" => self.report_op(request, |e| Ok(serialize(check::check_package(&e.package)))),
+            "check" => {
+                let suppressions = parse_suppressions(request)?;
+                self.report_op(request, |e| {
+                    Ok(serialize(check::check_package_with(
+                        &e.package,
+                        &suppressions,
+                    )))
+                })
+            }
             other => Err(fail("unknown-op", format!("unknown op {other}"))),
         }
     }
