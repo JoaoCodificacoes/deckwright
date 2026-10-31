@@ -201,8 +201,6 @@ pub fn validate_timeline(timeline: &Timeline) -> Result<()> {
                     .iter()
                     .all(|x| x.is_finite())
                     || [from_x, from_y, to_x, to_y].iter().any(|x| x.abs() > 100.0)
-                    || to_x != 0.0
-                    || to_y != 0.0
                     || accelerate < 0.0
                     || decelerate < 0.0
                     || accelerate + decelerate > 1.0)
@@ -385,6 +383,19 @@ fn effect_xml(e: &Effect, id: &mut u32, node_type: &str) -> String {
         e.delay_ms
     )
 }
+/// Start conditions of a main-sequence group wrapper. A click group waits for a click. The
+/// first group of a timeline that starts with `OnSlideStart` uses the auto-start pair, which
+/// `auto_start` reads back. Other groups keep their base `delay="0"` condition.
+fn group_conditions(click: bool, auto: bool) -> &'static str {
+    if click {
+        r#"<p:cond delay="indefinite"/>"#
+    } else if auto {
+        r#"<p:cond delay="indefinite"/><p:cond evt="onBegin" delay="0"><p:tn val="2"/></p:cond>"#
+    } else {
+        r#"<p:cond delay="0"/>"#
+    }
+}
+
 /// Compile fresh timing from typed semantics; imported XML is never copied.
 pub fn compile_animated_slide(
     slide: &Slide,
@@ -423,6 +434,11 @@ pub fn compile_animated_slide(
             "<mc:AlternateContent xmlns:mc=\"http://schemas.openxmlformats.org/markup-compatibility/2006\"><mc:Choice xmlns:p159=\"http://schemas.microsoft.com/office/powerpoint/2015/09/main\" Requires=\"p159\"><p:transition xmlns:p14=\"http://schemas.microsoft.com/office/powerpoint/2010/main\" p14:dur=\"{duration_ms}\"><p159:morph option=\"byObject\"/></p:transition></mc:Choice><mc:Fallback><p:transition xmlns:p14=\"http://schemas.microsoft.com/office/powerpoint/2010/main\" p14:dur=\"{duration_ms}\"><p:fade/></p:transition></mc:Fallback></mc:AlternateContent>"
         ),
     };
+    // A timeline that starts with OnSlideStart uses the auto-start pair for its first group.
+    let auto = matches!(
+        timeline.stages.first().map(|s| &s.trigger),
+        Some(Trigger::OnSlideStart)
+    );
     let mut id = 3;
     let mut body = String::new();
     let mut block = String::new();
@@ -432,9 +448,10 @@ pub fn compile_animated_slide(
     for s in &timeline.stages {
         if matches!(s.trigger, Trigger::OnClick | Trigger::OnSlideStart) && !block.is_empty() {
             let wrapper = ct(&mut id);
+            // Groups are emitted in order, so an empty body means this is the first group.
+            let conditions = group_conditions(block_click, auto && body.is_empty());
             body += &format!(
-                "<p:par><p:cTn id=\"{wrapper}\" fill=\"hold\"><p:stCondLst><p:cond delay=\"{}\"/></p:stCondLst><p:childTnLst>{block}</p:childTnLst></p:cTn></p:par>",
-                if block_click { "indefinite" } else { "0" }
+                "<p:par><p:cTn id=\"{wrapper}\" fill=\"hold\"><p:stCondLst>{conditions}</p:stCondLst><p:childTnLst>{block}</p:childTnLst></p:cTn></p:par>"
             );
             block.clear();
         }
@@ -490,9 +507,9 @@ pub fn compile_animated_slide(
     }
     if !block.is_empty() {
         let wrapper = ct(&mut id);
+        let conditions = group_conditions(block_click, auto && body.is_empty());
         body += &format!(
-            "<p:par><p:cTn id=\"{wrapper}\" fill=\"hold\"><p:stCondLst><p:cond delay=\"{}\"/></p:stCondLst><p:childTnLst>{block}</p:childTnLst></p:cTn></p:par>",
-            if block_click { "indefinite" } else { "0" }
+            "<p:par><p:cTn id=\"{wrapper}\" fill=\"hold\"><p:stCondLst>{conditions}</p:stCondLst><p:childTnLst>{block}</p:childTnLst></p:cTn></p:par>"
         );
     }
     let mut builds = BTreeSet::new();
@@ -580,6 +597,24 @@ fn exact(n: &Node, name: &str, keys: &[&str], children: usize) -> bool {
         && n.attrs.len() == keys.len()
         && n.children.len() == children
         && keys.iter().all(|k| n.attrs.contains_key(*k))
+}
+/// `group` is a main-sequence group whose cTn start conditions are exactly
+/// `<cond delay="indefinite"/>` followed by `<cond evt="onBegin" delay="0"><tn val="{main}"/></cond>`.
+fn auto_start(group: &Node, main: u32) -> bool {
+    let Some(list) = child(group, "cTn").and_then(|n| child(n, "stCondLst")) else {
+        return false;
+    };
+    let [first, second] = list.children.as_slice() else {
+        return false;
+    };
+    let main = main.to_string();
+    exact(first, "cond", &["delay"], 0)
+        && attr(first, "delay") == Some("indefinite")
+        && exact(second, "cond", &["evt", "delay"], 1)
+        && attr(second, "evt") == Some("onBegin")
+        && attr(second, "delay") == Some("0")
+        && exact(&second.children[0], "tn", &["val"], 0)
+        && attr(&second.children[0], "val") == Some(main.as_str())
 }
 /// A `p:video` node placed after the main sequence: its target and volume. It must match
 /// `compile_animated_slide` exactly, with no other attributes or children.
@@ -925,6 +960,7 @@ pub fn parse_slide_timing(xml: &[u8], part: &str) -> Result<ParsedTiming> {
         n: &'a Node,
         stack: &mut Vec<&'a Node>,
         placed: &[&Node],
+        auto: &[&Node],
         unknown: &mut Vec<OpaqueTiming>,
     ) {
         // Placed media nodes are validated by `media_node`, so their contents are not inspected.
@@ -967,7 +1003,14 @@ pub fn parse_slide_timing(xml: &[u8], part: &str) -> Result<ParsedTiming> {
                     | "bldLst"
                     | "bldP"
             )
-            || (n.name == "by" && parent == "animScale");
+            || (n.name == "by" && parent == "animScale")
+            // The default centre of rotation at the origin carries no semantics; any other
+            // centre stays opaque.
+            || (n.name == "rCtr"
+                && parent == "animMotion"
+                && n.attrs.len() == 2
+                && attr(n, "x") == Some("0")
+                && attr(n, "y") == Some("0"));
         if n.namespace != P || !allowed {
             unknown.push(opaque(n, format!("unsupported timing element {}", n.name)));
             return;
@@ -1005,15 +1048,23 @@ pub fn parse_slide_timing(xml: &[u8], part: &str) -> Result<ParsedTiming> {
         {
             unknown.push(opaque(n, "unsupported trigger event"));
         }
-        if n.name == "stCondLst" && n.children.len() != 1 {
+        // Auto-start pairs are validated by `auto_start`, the only multiple-condition form.
+        if n.name == "stCondLst"
+            && n.children.len() != 1
+            && !auto.iter().any(|a| std::ptr::eq(*a, n))
+        {
             unknown.push(opaque(n, "multiple start conditions are unsupported"));
+        }
+        // PowerPoint writes an empty point-type list; any other list stays opaque.
+        if n.name == "animMotion" && attr(n, "ptsTypes").is_some_and(|v| !v.is_empty()) {
+            unknown.push(opaque(n, "unsupported motion point types"));
         }
         if n.name == "spTgt" && !n.children.is_empty() {
             unknown.push(opaque(n, "text/subshape targets are unsupported"));
         }
         stack.push(n);
         for c in &n.children {
-            inspect(c, stack, placed, unknown);
+            inspect(c, stack, placed, auto, unknown);
         }
         stack.pop();
     }
@@ -1030,7 +1081,30 @@ pub fn parse_slide_timing(xml: &[u8], part: &str) -> Result<ParsedTiming> {
                 .collect()
         })
         .unwrap_or_default();
-    inspect(timing, &mut Vec::new(), &placed, &mut result.opaque);
+    let main = timing
+        .descendants("cTn")
+        .find(|n| attr(n, "nodeType") == Some("mainSeq"));
+    let main_id = main
+        .and_then(|n| attr(n, "id"))
+        .and_then(|v| v.parse::<u32>().ok());
+    let main_list = main.and_then(|n| child(n, "childTnLst"));
+    let auto_conds: Vec<&Node> = match (main_list, main_id) {
+        (Some(list), Some(id)) => list
+            .children
+            .iter()
+            .filter(|g| auto_start(g, id))
+            .filter_map(|g| child(g, "cTn"))
+            .filter_map(|n| child(n, "stCondLst"))
+            .collect(),
+        _ => Vec::new(),
+    };
+    inspect(
+        timing,
+        &mut Vec::new(),
+        &placed,
+        &auto_conds,
+        &mut result.opaque,
+    );
     let media: Vec<Result<(u32, u32)>> = placed.iter().map(|v| media_node(v, part)).collect();
     let mut counts = BTreeMap::<u32, usize>::new();
     for (target, _) in media.iter().flatten() {
@@ -1059,10 +1133,7 @@ pub fn parse_slide_timing(xml: &[u8], part: &str) -> Result<ParsedTiming> {
             return Err(bad(part, format!("timing references missing target {id}")));
         }
     }
-    let main = timing
-        .descendants("cTn")
-        .find(|n| attr(n, "nodeType") == Some("mainSeq"));
-    let Some(list) = main.and_then(|n| child(n, "childTnLst")) else {
+    let Some(list) = main_list else {
         result
             .opaque
             .push(opaque(timing, "missing supported main sequence"));
@@ -1072,7 +1143,8 @@ pub fn parse_slide_timing(xml: &[u8], part: &str) -> Result<ParsedTiming> {
         return Ok(result);
     };
     let mut previous_end = Some(0_i64);
-    let mut groups = Vec::new();
+    // Each entry carries whether it is the first stage of an auto-start group.
+    let mut groups: Vec<(&Node, bool)> = Vec::new();
     for group in &list.children {
         let nested = child(group, "cTn").and_then(|n| child(n, "childTnLst"));
         let canonical = nested.is_some_and(|list| {
@@ -1081,15 +1153,22 @@ pub fn parse_slide_timing(xml: &[u8], part: &str) -> Result<ParsedTiming> {
                     .is_some_and(|n| attr(n, "nodeType").is_some() && attr(n, "presetID").is_none())
             })
         });
+        let auto = main_id.is_some_and(|id| auto_start(group, id));
         if canonical {
             if let Some(nested) = nested {
-                groups.extend(nested.children.iter());
+                groups.extend(
+                    nested
+                        .children
+                        .iter()
+                        .enumerate()
+                        .map(|(i, c)| (c, auto && i == 0)),
+                );
             }
         } else {
-            groups.push(group);
+            groups.push((group, auto));
         }
     }
-    for group in groups {
+    for (group, auto) in groups {
         let Some(n) = child(group, "cTn") else {
             result
                 .opaque
@@ -1106,7 +1185,11 @@ pub fn parse_slide_timing(xml: &[u8], part: &str) -> Result<ParsedTiming> {
             if !effects.is_empty() {
                 previous_end = effects_end(&effects);
                 result.timeline.stages.push(Stage {
-                    trigger: Trigger::OnClick,
+                    trigger: if auto {
+                        Trigger::OnSlideStart
+                    } else {
+                        Trigger::OnClick
+                    },
                     delay_ms: 0,
                     effects,
                 });
@@ -1120,7 +1203,7 @@ pub fn parse_slide_timing(xml: &[u8], part: &str) -> Result<ParsedTiming> {
             continue;
         };
         let cond = child(n, "stCondLst").and_then(|x| child(x, "cond"));
-        let trigger = match node_type {
+        let mut trigger = match node_type {
             "clickEffect" => Trigger::OnClick,
             "afterEffect" => Trigger::AfterPrevious,
             "withEffect" => {
@@ -1135,6 +1218,17 @@ pub fn parse_slide_timing(xml: &[u8], part: &str) -> Result<ParsedTiming> {
                 continue;
             }
         };
+        // The first stage of an auto-start group starts with the slide. Its delay is
+        // absolute, like any OnSlideStart stage, so it is not measured from a previous stage.
+        if auto {
+            if cond.is_some_and(|c| child(c, "tn").is_some()) {
+                result
+                    .opaque
+                    .push(opaque(n, "auto-start stage refers to another stage"));
+                continue;
+            }
+            trigger = Trigger::OnSlideStart;
+        }
         let mut stage_delay = delay(n, part)?;
         if matches!(trigger, Trigger::AfterPrevious) {
             let Some(end) = previous_end else {

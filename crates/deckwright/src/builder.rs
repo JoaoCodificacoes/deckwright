@@ -236,11 +236,23 @@ fn properties(p: &Properties) -> String {
         content += &fill(f);
     }
     if let Some(l) = &p.line {
-        content += &element(
-            "a:ln",
-            opt("w", l.width.map(|v| v.0)),
-            l.fill.as_ref().map(fill).unwrap_or_default(),
-        );
+        // Schema order inside a:ln: fill, prstDash, headEnd, tailEnd.
+        let mut children = l.fill.as_ref().map(fill).unwrap_or_default();
+        if let Some(dash) = &l.dash {
+            children += &element("a:prstDash", attr("val", dash), String::new());
+        }
+        for (tag, end) in [("a:headEnd", &l.head_end), ("a:tailEnd", &l.tail_end)] {
+            if let Some(end) = end {
+                children += &element(
+                    tag,
+                    attr("type", &end.kind)
+                        + &opt("w", end.width.as_ref())
+                        + &opt("len", end.length.as_ref()),
+                    String::new(),
+                );
+            }
+        }
+        content += &element("a:ln", opt("w", l.width.map(|v| v.0)), children);
     }
     if let Some(effects) = &p.effects {
         let effects = effects
@@ -320,18 +332,7 @@ fn text(t: &TextBody) -> String {
         for r in &p.runs {
             let mut run = String::new();
             if let Some(s) = &r.style {
-                let attrs = opt("sz", s.size)
-                    + &opt("b", s.bold.map(u8::from))
-                    + &opt("i", s.italic.map(u8::from));
-                let mut run_style = s
-                    .color
-                    .as_ref()
-                    .map(|c| element("a:solidFill", String::new(), color(c)))
-                    .unwrap_or_default();
-                if let Some(font) = &s.font {
-                    run_style += &element("a:latin", attr("typeface", font), String::new());
-                }
-                run += &element("a:rPr", attrs, run_style);
+                run += &run_properties("a:rPr", s);
             }
             // xml:space makes authored leading/trailing and repeated whitespace explicit.
             run += &element("a:t", attr("xml:space", "preserve"), escape(&r.text));
@@ -345,9 +346,28 @@ fn text(t: &TextBody) -> String {
                 element("a:r", String::new(), run)
             };
         }
+        if let Some(end) = &p.end_style {
+            paragraph += &run_properties("a:endParaRPr", end);
+        }
         content += &element("a:p", String::new(), paragraph);
     }
     element("p:txBody", String::new(), content)
+}
+/// Shared by a:rPr and a:endParaRPr: identical attributes and children, different tag.
+fn run_properties(tag: &str, s: &RunStyle) -> String {
+    let attrs = opt("sz", s.size)
+        + &opt("b", s.bold.map(u8::from))
+        + &opt("i", s.italic.map(u8::from))
+        + &opt("u", s.underline.as_ref());
+    let mut children = s
+        .color
+        .as_ref()
+        .map(|c| element("a:solidFill", String::new(), color(c)))
+        .unwrap_or_default();
+    if let Some(font) = &s.font {
+        children += &element("a:latin", attr("typeface", font), String::new());
+    }
+    element(tag, attrs, children)
 }
 fn common(o: &Object) -> String {
     let name = o.morph_name.as_ref().unwrap_or(&o.name);
@@ -387,7 +407,7 @@ fn picture_nv_pr(media: &Option<MediaLink>) -> String {
             );
             let ext = element(
                 "p:ext",
-                attr("uri", "{DAA4B4D4-6D54-4E2E-8F54-EE73A2AFCE79}"),
+                attr("uri", "{DAA4B4D4-6D71-4841-9C94-3DE7FCFB9230}"),
                 media_ext,
             );
             element(
@@ -799,6 +819,42 @@ fn check_properties(p: &Properties, key: &str) -> Result<()> {
     if let Some(width) = p.line.as_ref().and_then(|l| l.width) {
         range(width.0, 0, 20116800, key, "line width")?;
     }
+    if let Some(line) = &p.line {
+        if let Some(dash) = &line.dash {
+            member(
+                dash,
+                &[
+                    "solid",
+                    "dot",
+                    "dash",
+                    "lgDash",
+                    "dashDot",
+                    "lgDashDot",
+                    "lgDashDotDot",
+                    "sysDash",
+                    "sysDot",
+                    "sysDashDot",
+                    "sysDashDotDot",
+                ],
+                key,
+                "line dash",
+            )?;
+        }
+        for end in [&line.head_end, &line.tail_end].into_iter().flatten() {
+            member(
+                &end.kind,
+                &["none", "triangle", "stealth", "diamond", "oval", "arrow"],
+                key,
+                "line end kind",
+            )?;
+            if let Some(width) = &end.width {
+                member(width, &["sm", "med", "lg"], key, "line end width")?;
+            }
+            if let Some(length) = &end.length {
+                member(length, &["sm", "med", "lg"], key, "line end length")?;
+            }
+        }
+    }
     if let Some(effects) = &p.effects {
         for shadow in effects {
             range(shadow.blur.0, 0, i32::MAX.into(), key, "shadow blur")?;
@@ -920,6 +976,39 @@ fn check_style(style: &StyleReferences, key: &str) -> Result<()> {
         "font style index",
     )
 }
+fn check_run_style(style: &RunStyle, key: &str) -> Result<()> {
+    if let Some(size) = style.size {
+        range(size.into(), 100, 400000, key, "font size")?;
+    }
+    if let Some(underline) = &style.underline {
+        member(
+            underline,
+            &[
+                "none",
+                "words",
+                "sng",
+                "dbl",
+                "heavy",
+                "dotted",
+                "dottedHeavy",
+                "dash",
+                "dashHeavy",
+                "dashLong",
+                "dashLongHeavy",
+                "dotDash",
+                "dotDashHeavy",
+                "dotDotDash",
+                "dotDotDashHeavy",
+                "wavy",
+                "wavyHeavy",
+                "wavyDbl",
+            ],
+            key,
+            "underline",
+        )?;
+    }
+    Ok(())
+}
 fn check_text(text: &TextBody, key: &str) -> Result<()> {
     if text.paragraphs.is_empty() {
         return Err(authored_error(
@@ -954,9 +1043,12 @@ fn check_text(text: &TextBody, key: &str) -> Result<()> {
                 range(spacing.into(), 0, 158400, key, "paragraph spacing")?;
             }
         }
+        if let Some(end) = &paragraph.end_style {
+            check_run_style(end, key)?;
+        }
         for run in &paragraph.runs {
-            if let Some(size) = run.style.as_ref().and_then(|s| s.size) {
-                range(size.into(), 100, 400000, key, "font size")?;
+            if let Some(style) = &run.style {
+                check_run_style(style, key)?;
             }
             if let Some(field) = &run.field {
                 let bytes = field.id.as_bytes();

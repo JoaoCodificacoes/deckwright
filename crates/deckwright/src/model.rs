@@ -200,13 +200,32 @@ pub enum Fill {
     None,
     Solid { color: Color },
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Line {
     #[serde(default)]
     pub width: Option<Emu>,
     #[serde(default)]
     pub fill: Option<Fill>,
+    /// ST_PresetLineDashVal, such as solid, dash or sysDot.
+    #[serde(default)]
+    pub dash: Option<String>,
+    #[serde(default)]
+    pub head_end: Option<LineEnd>,
+    #[serde(default)]
+    pub tail_end: Option<LineEnd>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LineEnd {
+    /// ST_LineEndType: none, triangle, stealth, diamond, oval or arrow.
+    pub kind: String,
+    /// ST_LineEndWidth: sm, med or lg.
+    #[serde(default)]
+    pub width: Option<String>,
+    /// ST_LineEndLength: sm, med or lg.
+    #[serde(default)]
+    pub length: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -295,6 +314,9 @@ pub struct Paragraph {
     pub properties: Option<ParagraphProperties>,
     #[serde(default)]
     pub runs: Vec<TextRun>,
+    /// Emitted as `a:endParaRPr` after the runs.
+    #[serde(default)]
+    pub end_style: Option<RunStyle>,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -327,6 +349,9 @@ pub struct RunStyle {
     pub bold: Option<bool>,
     #[serde(default)]
     pub italic: Option<bool>,
+    /// ST_TextUnderlineType, such as sng, dbl or none.
+    #[serde(default)]
+    pub underline: Option<String>,
     #[serde(default)]
     pub color: Option<Color>,
 }

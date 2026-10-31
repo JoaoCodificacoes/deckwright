@@ -173,7 +173,7 @@ fn fade_in_hidden_at_start_reports_only_the_settled_state() {
 
 #[test]
 fn fade_out_hidden_in_settled_state_is_not_checked_there() {
-    // Motion starts on-slide (static position is the resting END) and ends off-slide,
+    // Motion starts on-slide and ends at the static position (to = 0), which is off-slide,
     // then a finished FadeOut hides the shape in the settled state.
     let motion = Stage {
         trigger: Trigger::OnSlideStart,
@@ -274,7 +274,7 @@ fn malformed_but_parseable_timing_is_reported_never_clean() {
     };
     let endpoint = String::from_utf8(timed(100, vec![click(motion)]))
         .unwrap()
-        .replace("L 0 0 E", "L 0.5 0 E");
+        .replace("L 0 0 E", "L 500 0 E");
     let mut stage = click(EffectKind::FadeIn);
     stage.delay_ms = 7;
     stage.effects[0].delay_ms = 11;
@@ -285,7 +285,7 @@ fn malformed_but_parseable_timing_is_reported_never_clean() {
         .replace("delay=\"11\"", &max);
     for xml in [endpoint, overflow] {
         assert!(
-            xml.contains("L 0.5 0 E") || xml.contains(&max),
+            xml.contains("L 500 0 E") || xml.contains(&max),
             "fixture edit failed"
         );
         let report = check_package(&package(xml.as_bytes()));

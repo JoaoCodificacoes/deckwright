@@ -7,7 +7,7 @@ numeric shape ID as a string, or null.
 | Rule | Severity | When |
 |---|---|---|
 | `timing-parse` | error | `timing::parse_slide_timing` fails for the slide. |
-| `timing-invalid` | error | Parsed timeline fails `timing::validate_timeline`. Defensive guard: the parser currently reports constructs outside the valid supported subset (including overflowing delays and motion paths not ending at the static position) as opaque timing, so this rule fires only if that parser invariant breaks. |
+| `timing-invalid` | error | Parsed timeline fails `timing::validate_timeline`. Defensive guard: the parser currently reports constructs outside the valid supported subset (including overflowing delays and motion paths outside 100 slide units) as opaque timing, so this rule fires only if that parser invariant breaks. |
 | `timing-opaque` | warning | One finding per `OpaqueTiming` entry. The message includes the reason, and `shape` is its first target or null. Timing semantics for those targets are unknown. |
 | `off-slide` | warning | A shape's resolved geometry lies entirely outside the slide rectangle, either at slide start (no clicks, t = 0) or in the settled final state (every OnClick stage clicked, sampled after all effects end). |
 | `partially-off-slide` | warning | Resolved geometry intersects the slide but extends past an edge, in either of the same two states. |

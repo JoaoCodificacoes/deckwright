@@ -95,3 +95,27 @@ position_ms: u64 }`; other shapes get `media: null`.
 The `state-v1.json` schema gains the nullable, required `media` property on
 each shape. The effect's active duration is `duration_ms`, and media effects
 never repeat.
+
+
+## Wave 10: general motion paths and auto-start groups (pending oracle)
+
+**Motion.** The `to_x == 0 && to_y == 0` requirement is removed. `from` and
+`to` stay finite and within 100 slide units, and the easing rules are
+unchanged. Evaluation follows query.md rule 6.
+- The parser accepts PowerPoint's default `ptsTypes=""` attribute and a
+  `<p:rCtr x="0" y="0"/>` child after the behaviour. Both are dropped, since
+  they carry no semantics at these values. Any other `rCtr` or `ptsTypes`
+  value stays opaque.
+- The compiler output is unchanged.
+
+**Auto-start click groups.** A main-sequence group whose cTn start conditions
+are exactly `[<p:cond delay="indefinite"/>, <p:cond evt="onBegin" delay="0">
+<p:tn val="{mainSeq cTn id}"/></p:cond>]` starts when the slide starts, not
+on a click.
+- The parser handles it as an indefinite click group whose `OnClick` first
+  stage becomes `OnSlideStart`. Its later stages keep their `WithPrevious` or
+  `AfterPrevious` triggers.
+- The compiler emits this two-condition form for a group whose first stage is
+  `OnSlideStart`. Before writing that part of the compiler, check how it emits
+  `OnSlideStart` today. Round trips must preserve the semantics.
+- Any other multiple-condition form stays opaque.
