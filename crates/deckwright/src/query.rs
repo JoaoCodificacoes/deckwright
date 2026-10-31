@@ -368,7 +368,10 @@ impl QuerySession {
         for (shape, m) in shapes.iter_mut().zip(media) {
             shape.media = m;
         }
-        // Rule 6: started motion is additive and applied in document order; pending motion does nothing.
+        // Rule 6: the latest-begun started motion on a shape sets its offset from the static
+        // position. Ties go to the later effect in document order. Offsets are not summed, and
+        // a pending motion does nothing.
+        let mut offsets = BTreeMap::<u32, (i128, f64, f64)>::new();
         for (effect, begin) in &scheduled {
             if let EffectKind::Motion {
                 from_x,
@@ -378,16 +381,23 @@ impl QuerySession {
                 accelerate,
                 decelerate,
             } = &effect.kind
-                && let Some(shape) = shapes.iter_mut().find(|x| x.id == effect.target)
+                && let Some(b) = begin.filter(|b| *b <= now)
+                && offsets
+                    .get(&effect.target)
+                    .is_none_or(|(latest, _, _)| b >= *latest)
             {
-                let Some(b) = begin.filter(|b| *b <= now) else {
-                    continue;
-                };
                 let p = ease(progress(b, effect, now), *accelerate, *decelerate);
-                if let Some(g) = shape.geometry.as_mut() {
-                    g.x += (from_x + (to_x - from_x) * p - to_x) * s.width;
-                    g.y += (from_y + (to_y - from_y) * p - to_y) * s.height;
-                }
+                let x = from_x + (to_x - from_x) * p;
+                let y = from_y + (to_y - from_y) * p;
+                offsets.insert(effect.target, (b, x, y));
+            }
+        }
+        for shape in shapes.iter_mut() {
+            if let Some(&(_, x, y)) = offsets.get(&shape.id)
+                && let Some(g) = shape.geometry.as_mut()
+            {
+                g.x += x * s.width;
+                g.y += y * s.height;
             }
         }
         // Started scales run after motion, about the shape's current centre. They multiply, so
