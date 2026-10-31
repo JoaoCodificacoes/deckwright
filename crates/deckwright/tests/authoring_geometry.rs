@@ -172,7 +172,7 @@ fn video_picture_emits_media_link_extension_and_click_action() {
     ));
     assert!(out.contains(concat!(
         "<p:nvPr><a:videoFile r:link=\"rId4\"/><p:extLst>",
-        "<p:ext uri=\"{DAA4B4D4-6D54-4E2E-8F54-EE73A2AFCE79}\">",
+        "<p:ext uri=\"{DAA4B4D4-6D71-4841-9C94-3DE7FCFB9230}\">",
         "<p14:media xmlns:p14=\"http://schemas.microsoft.com/office/powerpoint/2010/main\" r:embed=\"rId5\"/>",
         "</p:ext></p:extLst></p:nvPr>"
     )));

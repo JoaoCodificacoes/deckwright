@@ -407,7 +407,7 @@ fn picture_nv_pr(media: &Option<MediaLink>) -> String {
             );
             let ext = element(
                 "p:ext",
-                attr("uri", "{DAA4B4D4-6D54-4E2E-8F54-EE73A2AFCE79}"),
+                attr("uri", "{DAA4B4D4-6D71-4841-9C94-3DE7FCFB9230}"),
                 media_ext,
             );
             element(

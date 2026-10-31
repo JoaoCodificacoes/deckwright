@@ -25,7 +25,7 @@
    Option<MediaLink>`, with `MediaLink { video_relationship: String,
    media_relationship: String }`.
    - The builder emits `<a:videoFile r:link="{video}"/>` in `p:nvPr`, followed
-     by `<p:extLst><p:ext uri="{DAA4B4D4-6D54-4E2E-8F54-EE73A2AFCE79}">
+     by `<p:extLst><p:ext uri="{DAA4B4D4-6D71-4841-9C94-3DE7FCFB9230}">
      <p14:media xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main"
      r:embed="{media}"/></p:ext></p:extLst>`.
    - It also emits `<a:hlinkClick r:id="" action="ppaction://media"/>` inside
