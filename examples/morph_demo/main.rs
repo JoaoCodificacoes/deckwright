@@ -36,6 +36,7 @@ fn label(text: &str, rgb: &str, size: u32) -> TextBody {
         list_style: false,
         paragraphs: vec![Paragraph {
             properties: None,
+            end_style: None,
             runs: vec![TextRun {
                 text: text.into(),
                 style: Some(RunStyle {
@@ -93,6 +94,7 @@ fn shape(
                 line: Some(Line {
                     width: None,
                     fill: Some(Fill::None),
+                    ..Default::default()
                 }),
                 effects: None,
                 custom: None,

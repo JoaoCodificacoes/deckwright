@@ -56,6 +56,7 @@ fn shape(key: &str, id: u32, name: &str, preset: &str, rect: [i64; 4], rgb: &str
                 line: Some(Line {
                     width: None,
                     fill: Some(Fill::None),
+                    ..Default::default()
                 }),
                 effects: None,
                 custom: None,
