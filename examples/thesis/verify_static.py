@@ -36,6 +36,17 @@ def canonical(n):
     return (n.tag, tuple(sorted(attrs.items())), n.text or "", tuple(children))
 
 
+def is_identity_root(grp_sp_pr):
+    """True for a slide-root grpSpPr holding only the all-zero identity xfrm."""
+    children = list(grp_sp_pr)
+    if grp_sp_pr.attrib or len(children) != 1 or children[0].tag != "{" + A + "}xfrm":
+        return False
+    xfrm = children[0]
+    if xfrm.attrib or [c.tag.rsplit("}", 1)[-1] for c in xfrm] != ["off", "ext", "chOff", "chExt"]:
+        return False
+    return all(set(c.attrib) in ({"x", "y"}, {"cx", "cy"}) and set(c.attrib.values()) == {"0"} and not list(c) for c in xfrm)
+
+
 def parts_of(path):
     with zipfile.ZipFile(path) as z:
         return {n: z.read(n) for n in z.namelist()}
@@ -73,6 +84,10 @@ def verify(reference, generated, sha256=None):
         if len(old_tree) != len(new_tree):
             raise ValueError(f"slide {i}: native root child count changed")
         for original, authored in zip(old_tree, new_tree):
+            if original.tag == "{" + P + "}grpSpPr" and is_identity_root(original):
+                # PowerPoint may write an all-zero identity transform on the slide root;
+                # it has no effect and the builder omits it. Nothing else is normalized.
+                original = ET.Element(original.tag)
             if canonical(original) != canonical(authored):
                 original_id = next((n.attrib.get("id") for n in original.iter() if n.tag == "{" + P + "}cNvPr"), "root")
                 raise ValueError(f"slide {i}, object {original_id}: native semantic XML mismatch")

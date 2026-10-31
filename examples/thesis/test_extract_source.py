@@ -316,3 +316,18 @@ print(json.dumps(report))
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IdentityRootTransform(unittest.TestCase):
+    def test_only_the_all_zero_root_xfrm_is_identity(self):
+        import verify_static
+        a = "http://schemas.openxmlformats.org/drawingml/2006/main"
+        p = "http://schemas.openxmlformats.org/presentationml/2006/main"
+        def root(off="0"):
+            return ET.fromstring(
+                f'<p:grpSpPr xmlns:p="{p}" xmlns:a="{a}"><a:xfrm><a:off x="{off}" y="0"/>'
+                '<a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>'
+            )
+        self.assertTrue(verify_static.is_identity_root(root()))
+        self.assertFalse(verify_static.is_identity_root(root("5")))
+        self.assertFalse(verify_static.is_identity_root(ET.fromstring(f'<p:grpSpPr xmlns:p="{p}"/>')))
