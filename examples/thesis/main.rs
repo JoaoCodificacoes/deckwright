@@ -1,19 +1,15 @@
-//! Rebuild three editable static slides from private typed source and template.
+//! Rebuild every editable slide listed by the manifest from private typed source and template.
 use deckwright::{
     Error, Limits, Package, Result,
     builder::compile_slide,
     model::{Object, ObjectKind, Slide},
+    timing::{ParsedTiming, compile_animated_slide},
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
     io::Write,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
-mod slides {
-    pub mod s01;
-    pub mod s02;
-    pub mod s03;
-}
 
 fn io(path: &Path, source: std::io::Error) -> Error {
     Error::Io {
@@ -21,13 +17,38 @@ fn io(path: &Path, source: std::io::Error) -> Error {
         source,
     }
 }
-fn read_slide(root: &Path, filename: &str) -> Result<Slide> {
-    let path = root.join("slides").join(filename);
+/// Manifest paths are relative to the prepared source directory and cannot escape it.
+fn source_path(root: &Path, relative: &str) -> Result<PathBuf> {
+    let path = Path::new(relative);
+    if relative.is_empty() || !path.components().all(|c| matches!(c, Component::Normal(_))) {
+        return Err(Error::InvalidPart {
+            part: "authored manifest".into(),
+            message: "slide source must be a relative path inside the source directory".into(),
+        });
+    }
+    Ok(root.join(path))
+}
+fn read_slide(root: &Path, relative: &str) -> Result<Slide> {
+    let path = source_path(root, relative)?;
     let data = std::fs::read(&path).map_err(|e| io(&path, e))?;
     serde_json::from_slice(&data).map_err(|e| Error::InvalidPart {
         part: path.display().to_string(),
         message: e.to_string(),
     })
+}
+/// Timing exists only for slides extracted with `--dw`, as the sibling `sNN.timing.json`.
+fn read_timing(root: &Path, relative: &str) -> Result<Option<ParsedTiming>> {
+    let timing_path = source_path(root, relative)?.with_extension("timing.json");
+    if !timing_path.exists() {
+        return Ok(None);
+    }
+    let data = std::fs::read(&timing_path).map_err(|e| io(&timing_path, e))?;
+    serde_json::from_slice(&data)
+        .map(Some)
+        .map_err(|e| Error::InvalidPart {
+            part: timing_path.display().to_string(),
+            message: e.to_string(),
+        })
 }
 /// Current placements are regenerated from the same typed objects compiled into
 /// the deck. Extraction-time placements are retained separately as provenance.
@@ -138,17 +159,39 @@ fn build(root: &Path, output: &Path) -> Result<()> {
             message: "manifest version or template SHA-256 does not match".into(),
         });
     }
-    let slides = [
-        slides::s01::build(root)?,
-        slides::s02::build(root)?,
-        slides::s03::build(root)?,
-    ];
+    // Manifest order is presentation order; each slide targets its own template part.
+    let entries: Vec<(String, String)> = source_manifest
+        .get("slides")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| Error::InvalidPart {
+            part: manifest.display().to_string(),
+            message: "slides must be an array".into(),
+        })?
+        .iter()
+        .map(|entry| -> Result<(String, String)> {
+            let field = |name: &str| {
+                entry
+                    .get(name)
+                    .and_then(|v| v.as_str())
+                    .map(str::to_owned)
+                    .ok_or_else(|| Error::InvalidPart {
+                        part: manifest.display().to_string(),
+                        message: format!("slide entry requires {name}"),
+                    })
+            };
+            Ok((field("source")?, field("part")?))
+        })
+        .collect::<Result<_>>()?;
+    let mut slides = Vec::with_capacity(entries.len());
     let mut replacements = BTreeMap::new();
-    for (index, slide) in slides.iter().enumerate() {
-        replacements.insert(
-            format!("ppt/slides/slide{}.xml", index + 1),
-            compile_slide(slide)?,
-        );
+    for (source, part) in entries {
+        let slide = read_slide(root, &source)?;
+        let xml = match read_timing(root, &source)? {
+            Some(timing) => compile_animated_slide(&slide, &timing.timeline, &timing.transition)?,
+            None => compile_slide(&slide)?,
+        };
+        replacements.insert(part, xml);
+        slides.push(slide);
     }
     let authored = template.edited(replacements, &BTreeSet::new(), Limits::default())?;
     if let Some(parent) = output.parent() {

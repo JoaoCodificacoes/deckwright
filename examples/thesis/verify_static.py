@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Compare authored native objects and retained template/media bytes exactly.
 
-This checks semantic XML after excluding only the documented source-key
-extension and explicit xml:space preservation. It is independent of the Rust
-compiler and complements, rather than replaces, PowerPoint rendering.
+This checks semantic XML for every slide, in sldIdLst order, after excluding only
+the documented source-key extension and explicit xml:space preservation. The
+comparison has no element allowlist, so new authored elements (line dashes and
+ends, endParaRPr, custom geometry, video media, underline) are compared too.
+Timing is not compared here. It is independent of the Rust compiler and
+complements, rather than replaces, PowerPoint rendering.
 """
 import argparse
 import hashlib
@@ -11,7 +14,7 @@ import json
 from pathlib import Path
 import xml.etree.ElementTree as ET
 import zipfile
-from extract_source import A, P, EXPECTED
+from extract_source import A, P, EXPECTED, digest, normalize_sha256, slide_parts
 
 
 def canonical(n):
@@ -33,20 +36,37 @@ def canonical(n):
     return (n.tag, tuple(sorted(attrs.items())), n.text or "", tuple(children))
 
 
-def verify(reference, generated):
-    if hashlib.sha256(reference.read_bytes()).hexdigest() != EXPECTED:
-        raise ValueError("reference is not the frozen authorized source")
-    with zipfile.ZipFile(reference) as z:
-        source = {n: z.read(n) for n in z.namelist()}
-    with zipfile.ZipFile(generated) as z:
-        output = {n: z.read(n) for n in z.namelist()}
+def parts_of(path):
+    with zipfile.ZipFile(path) as z:
+        return {n: z.read(n) for n in z.namelist()}
+
+
+COUNTED = {
+    "sp": ".//p:sp",
+    "pic": ".//p:pic",
+    "cxnSp": ".//p:cxnSp",
+    "grpSp": ".//p:grpSp",
+    "custGeom": ".//a:custGeom",
+    "videoFile": ".//a:videoFile",
+    "endParaRPr": ".//a:endParaRPr",
+    "prstDash": ".//a:prstDash",
+    "headEnd": ".//a:headEnd",
+    "tailEnd": ".//a:tailEnd",
+    "underlinedRuns": ".//a:rPr[@u]",
+}
+
+
+def verify(reference, generated, sha256=None):
+    authorized = EXPECTED if sha256 is None else normalize_sha256(sha256)
+    if digest(reference.read_bytes()) != authorized:
+        raise ValueError("reference is not the authorized source")
+    source, output = parts_of(reference), parts_of(generated)
     ns = {"p": P, "a": A}
+    order = slide_parts(source)
+    if slide_parts(output) != order:
+        raise ValueError("generated slide list or part order differs from the source")
     reports = []
-    generated_presentation = ET.fromstring(output["ppt/presentation.xml"])
-    if len(generated_presentation.findall("p:sldIdLst/p:sldId", ns)) != 3:
-        raise ValueError("generated presentation is not three slides")
-    for i in range(1, 4):
-        name = f"ppt/slides/slide{i}.xml"
+    for i, name in enumerate(order, 1):
         old = ET.fromstring(source[name])
         new = ET.fromstring(output[name])
         old_tree, new_tree = old.find("p:cSld/p:spTree", ns), new.find("p:cSld/p:spTree", ns)
@@ -56,18 +76,25 @@ def verify(reference, generated):
             if canonical(original) != canonical(authored):
                 original_id = next((n.attrib.get("id") for n in original.iter() if n.tag == "{" + P + "}cNvPr"), "root")
                 raise ValueError(f"slide {i}, object {original_id}: native semantic XML mismatch")
-        if new.find("p:timing", ns) is not None:
-            raise ValueError("static output unexpectedly has timing")
-        counts = {kind: len(new_tree.findall(".//p:" + kind, ns)) for kind in ("sp", "pic", "cxnSp", "grpSp")}
-        reports.append({"slide": i, "exact_native_semantics": True, "counts": counts})
-    intentionally_edited = {"[Content_Types].xml", "ppt/presentation.xml", "ppt/_rels/presentation.xml.rels"} | {f"ppt/slides/slide{i}.xml" for i in range(1, 4)}
+        counts = {label: len(new_tree.findall(path, ns)) for label, path in COUNTED.items()}
+        reports.append({"slide": i, "part": name, "exact_native_semantics": True, "timing_present": new.find("p:timing", ns) is not None, "counts": counts})
+    intentionally_edited = {"[Content_Types].xml"} | set(order)
     preserved = []
     for name, data in output.items():
         if name not in intentionally_edited:
             if source.get(name) != data:
                 raise ValueError(f"unexpected imported part mutation: {name}")
             preserved.append(name)
-    report = {"reference_sha256": EXPECTED, "generated_sha256": hashlib.sha256(generated.read_bytes()).hexdigest(), "slides": reports, "byte_preserved_imported_parts": len(preserved), "preserved_media_parts": sum(n.startswith("ppt/media/") for n in preserved), "intentional_static_omissions": ["transitions", "timing"], "powerpoint_visual_comparison": "separate required oracle gate"}
+    report = {
+        "reference_sha256": authorized,
+        "generated_sha256": hashlib.sha256(generated.read_bytes()).hexdigest(),
+        "slide_count": len(order),
+        "slides": reports,
+        "timing_compared": False,
+        "byte_preserved_imported_parts": len(preserved),
+        "preserved_media_parts": sum(n.startswith("ppt/media/") for n in preserved),
+        "powerpoint_visual_comparison": "separate required oracle gate",
+    }
     print(json.dumps(report, indent=2))
     return report
 
@@ -76,5 +103,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("reference", type=Path)
     parser.add_argument("generated", type=Path)
+    parser.add_argument("--sha256", help="authorize this explicitly named reference instead of the frozen one")
     args = parser.parse_args()
-    verify(args.reference, args.generated)
+    verify(args.reference, args.generated, args.sha256)
