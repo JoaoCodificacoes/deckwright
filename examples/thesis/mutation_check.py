@@ -3,6 +3,8 @@
 
 Run against the compiled Rust example and prepared private source directory.
 The baseline and mutation must be built by Rust, never by this check script.
+The mutated object is the first top-level text shape with a plain first run, in
+manifest slide order, so the check works for any slide count.
 """
 import argparse
 import copy
@@ -15,7 +17,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
 from verify_static import canonical
-from extract_source import P
+from extract_source import A, P
 
 
 def run(binary, source, output):
@@ -25,6 +27,19 @@ def run(binary, source, output):
 def parts(path):
     with zipfile.ZipFile(path) as zip:
         return {name: zip.read(name) for name in zip.namelist()}
+
+
+def choose_target(manifest, source_dir):
+    """Return (slide index, manifest entry, slide JSON, object) for the first eligible shape."""
+    for index, entry in enumerate(manifest["slides"]):
+        slide = json.loads((source_dir / entry["source"]).read_text(encoding="utf-8"))
+        for obj in slide["objects"]:
+            kind = obj["kind"]
+            paragraphs = kind.get("text", {}).get("paragraphs", [])
+            transform = kind.get("properties", {}).get("transform")
+            if kind["type"] == "shape" and transform and paragraphs and paragraphs[0]["runs"] and "field" not in paragraphs[0]["runs"][0]:
+                return index, entry, slide, obj
+    raise ValueError("no plain text shape to mutate")
 
 
 def check(binary, source):
@@ -37,9 +52,10 @@ def check(binary, source):
             raise ValueError("identical builds are not deterministic")
         copied = root / "source"
         shutil.copytree(source, copied)
-        path = copied / "slides" / "s01.json"
-        slide = json.loads(path.read_text(encoding="utf-8"))
-        target = next(o for o in slide["objects"] if o["key"] == "s01/object-3")
+        source_manifest = json.loads((copied / "manifest.json").read_text(encoding="utf-8"))
+        index, entry, slide, target = choose_target(source_manifest, copied)
+        path = copied / entry["source"]
+        part = entry["part"]
         old_target = copy.deepcopy(target)
         target["id"] = 999
         run_data = target["kind"]["text"]["paragraphs"][0]["runs"][0]
@@ -49,10 +65,10 @@ def check(binary, source):
         run(binary, copied, root / "mutated.pptx")
         before, after = parts(root / "baseline.pptx"), parts(root / "mutated.pptx")
         changed_parts = [name for name in before if before[name] != after[name]]
-        if changed_parts != ["ppt/slides/slide1.xml"]:
+        if changed_parts != [part]:
             raise ValueError(f"unrelated native/template/media parts changed: {changed_parts}")
-        ns = {"p": P, "a": "http://schemas.openxmlformats.org/drawingml/2006/main"}
-        trees = [ET.fromstring(p["ppt/slides/slide1.xml"]).find("p:cSld/p:spTree", ns) for p in (before, after)]
+        ns = {"p": P, "a": A}
+        trees = [ET.fromstring(p[part]).find("p:cSld/p:spTree", ns) for p in (before, after)]
         changed_objects = []
         for original, authored in zip(*trees):
             if canonical(original) != canonical(authored):
@@ -66,16 +82,17 @@ def check(binary, source):
             raise ValueError(f"mutation changed wrong native objects: {changed_objects}")
         baseline_map = json.loads((root / "baseline.manifest.json").read_text())
         mutated_map = json.loads((root / "mutated.manifest.json").read_text())
-        placements = mutated_map["slides"][0]["placements"]
-        placement = next(p for p in placements if p["key"] == target["key"])
-        authored_target = next(o for o in mutated_map["authored_static_source"][0]["objects"] if o["key"] == target["key"])
+        mutated_entry = mutated_map["slides"][index]
+        placement = next(p for p in mutated_entry["placements"] if p["key"] == target["key"])
+        authored_target = next(o for o in mutated_map["authored_static_source"][index]["objects"] if o["key"] == target["key"])
         if placement["generated_id"] != 999 or placement["transform"] != authored_target["kind"]["properties"]["transform"]:
             raise ValueError("current sidecar identity/placement is stale after typed edits")
-        provenance = mutated_map["slides"][0]["source_placements"]
-        original = next(p for p in provenance if p["key"] == target["key"])
+        original = next(p for p in mutated_entry["source_placements"] if p["key"] == target["key"])
         if original["source_id"] != old_target["id"] or original["transform"] != old_target["kind"]["properties"]["transform"]:
             raise ValueError("original source provenance was changed by authoring")
-        if baseline_map["assets"] != mutated_map["assets"] or baseline_map["slides"][1:] != mutated_map["slides"][1:]:
+        if (baseline_map["assets"] != mutated_map["assets"]
+                or baseline_map["slides"][:index] != mutated_map["slides"][:index]
+                or baseline_map["slides"][index + 1:] != mutated_map["slides"][index + 1:]):
             raise ValueError("unrelated sidecar source/asset/generated mappings changed")
         # Existing PPTX and sidecar outputs must survive a repeated invocation.
         sidecar = root / "baseline.manifest.json"
@@ -83,7 +100,21 @@ def check(binary, source):
         repeated = subprocess.run([str(binary), str(source), str(root / "baseline.pptx")], capture_output=True)
         if repeated.returncode == 0 or (root / "baseline.pptx").read_bytes() != original_bytes or sidecar.read_bytes() != old_sidecar:
             raise ValueError("existing output protection failed")
-        report = {"deterministic": True, "baseline_sha256": hashlib.sha256(original_bytes).hexdigest(), "changed_parts": changed_parts, "changed_native_objects": changed_objects, "text_mutation": "one character", "layout_mutation_emu": 12700, "current_manifest_matches_generated_id_and_geometry": True, "source_provenance_preserved": True, "unrelated_manifest_data_unchanged": True, "all_unrelated_template_media_native_objects_unchanged": True, "existing_outputs_protected": True}
+        report = {
+            "slide_count": len(source_manifest["slides"]),
+            "mutated_slide": index + 1,
+            "deterministic": True,
+            "baseline_sha256": hashlib.sha256(original_bytes).hexdigest(),
+            "changed_parts": changed_parts,
+            "changed_native_objects": changed_objects,
+            "text_mutation": "one character",
+            "layout_mutation_emu": 12700,
+            "current_manifest_matches_generated_id_and_geometry": True,
+            "source_provenance_preserved": True,
+            "unrelated_manifest_data_unchanged": True,
+            "all_unrelated_template_media_native_objects_unchanged": True,
+            "existing_outputs_protected": True,
+        }
         print(json.dumps(report, indent=2))
 
 

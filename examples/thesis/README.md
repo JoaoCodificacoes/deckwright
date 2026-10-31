@@ -1,22 +1,44 @@
-# Three-slide static authoring demonstrator
+# Whole-deck authoring demonstrator
 
-The Rust example compiles editable native text/shapes/pictures/connectors/groups
-from typed declarative data. It does not read source slide XML. Original assets,
-theme, masters and layouts are imported as opaque template dependencies.
+The Rust example compiles editable native text/shapes/pictures/connectors/groups,
+custom geometry and video pictures from typed declarative data. It does not read
+source slide XML. Original assets, theme, masters and layouts are imported as
+opaque template dependencies. It builds every slide listed by the manifest, in
+presentation order.
 
 Private source preparation (outside timed builds):
 
 ```sh
-python3 examples/thesis/extract_source.py /path/to/frozen/reference.pptx fixtures/private/thesis-source
-cargo run --release -p deckwright --example thesis -- fixtures/private/thesis-source build/thesis-static.pptx
-python3 examples/thesis/verify_static.py /path/to/frozen/reference.pptx build/thesis-static.pptx
+python3 examples/thesis/extract_source.py /path/to/private.pptx fixtures/private/thesis-source --sha256 <hex> --dw /path/to/dw
+cargo run --release -p deckwright --example thesis -- fixtures/private/thesis-source build/thesis.pptx
+python3 examples/thesis/verify_static.py /path/to/private.pptx build/thesis.pptx --sha256 <hex>
 python3 examples/thesis/mutation_check.py target/release/examples/thesis fixtures/private/thesis-source
 ```
 
-The extractor requires the authorized SHA-256 frozen in the plan. It fails on
-unknown authored elements/attributes and produces typed `slides/s01.json` through
-`s03.json`, a template containing three **empty** slides, and a placement/media
-manifest. Private wording/assets/data remain ignored; none are checked in.
+Without `--sha256`, the extractor and verifier accept only the frozen reference
+SHA-256 in the plan. `--sha256` authorizes another explicitly named source, must
+match its digest exactly (otherwise nothing is written), and is recorded as
+`source_sha256` in the manifest. Without `--dw`, the build is static: slides have
+no timing, and the manifest's `omissions` lists `timing` and `transitions`.
+
+The extractor fails on unknown authored elements/attributes and on any value outside
+the supported domains. It produces, in `slides/sNN.json` (two digits, widened
+beyond 99) for each slide in `sldIdLst` order, typed data. It also writes a
+template containing **every** slide as an empty shell (timing, transition and
+AlternateContent removed), and a placement/media manifest. With `--dw`, it runs
+`dw query timeline SOURCE --slide N --json` per slide, with no shell, and writes
+`slides/sNN.timing.json` with the `timing` object. Every entry in that object's
+`opaque` list appears in `unsupported_authored_features` as
+`{slide, targets, reason}`. The Rust example then compiles each slide with
+`compile_animated_slide` when its timing file exists, otherwise with
+`compile_slide`. Private wording, assets and data remain ignored; none are checked
+in.
+
+Supported authored additions include line dash and line ends, `endParaRPr`,
+underline, custom geometry (guides, adjustments and non-standard text rectangles
+fail closed) and video pictures (`videoFile`, `p14:media` and the media
+hyperlink).
+
 Each object's explicit `key` is distinct from `morph_name`. Array order is z-order.
 Absent properties inherit from the imported placeholder/layout/master/theme;
 present font/run, geometry and group child coordinates remain explicit.
@@ -39,14 +61,14 @@ Enum values and numeric domains in the supported model are checked before XML
 emission; invalid text wrapping, font sizes, line widths and similar attributes
 return an error identifying the authored source key.
 
-This milestone deliberately omits transitions and timing, displaying all static
-objects. It preserves source content quirks (including field text and document
-form labels); potential defects require review. PowerPoint/font/line-break
-comparison and performance qualification are separate evidence gates.
-Output uses create-new semantics: choose a fresh path on each run.
+Output uses create-new semantics: choose a fresh path on each run. Timing is
+compiled only from `dw` typed output; it is not compared by `verify_static.py`,
+which checks native objects only. PowerPoint/font/line-break comparison and
+performance qualification are separate evidence gates.
 
-`verify_static.py` independently compares every source/native object subtree,
-including nested group members, after excluding only the documented key carrier
-and explicit text whitespace attribute. It also verifies exact bytes for every
-retained imported dependency/media part. A mismatch fails with slide/object
-context. This is a semantic fidelity check; PowerPoint visual QA is still required.
+`verify_static.py` independently compares every slide's native object subtree, in
+sldIdLst order, including nested group members and the new elements, after
+excluding only the documented key carrier and explicit text whitespace attribute.
+It also verifies exact bytes for every retained imported dependency/media part. A
+mismatch fails with slide/object context. This is a semantic fidelity check;
+PowerPoint visual QA is still required.
