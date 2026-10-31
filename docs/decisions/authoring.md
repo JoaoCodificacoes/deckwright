@@ -35,3 +35,49 @@
 
 Existing slides 1–3 output must stay byte-identical. The tests prove it with
 the existing authoring fixtures.
+
+## Wave 9: line ends, dashes, paragraph end style, underline
+
+The model additions below cover every authored feature the v2 thesis deck uses
+beyond wave 6. Every field is `#[serde(default)]`, and `None` emits nothing, so
+existing output stays byte-identical.
+
+- **`Line`** derives `Default` and gains:
+  - `dash: Option<String>`, an ST_PresetLineDashVal: solid, dot, dash, lgDash,
+    dashDot, lgDashDot, lgDashDotDot, sysDash, sysDot, sysDashDot or
+    sysDashDotDot;
+  - `head_end: Option<LineEnd>` and `tail_end: Option<LineEnd>`.
+
+  `LineEnd { kind: String, width: Option<String>, length: Option<String> }`.
+  `kind` is one of none, triangle, stealth, diamond, oval or arrow. `width` and
+  `length` are sm, med or lg. Children of `a:ln` follow schema order: fill,
+  `<a:prstDash val/>`, `<a:headEnd type w len/>`, then
+  `<a:tailEnd type w len/>`. Absent `w` and `len` attributes are omitted.
+- **`Paragraph`** gains `end_style: Option<RunStyle>`, emitted as
+  `<a:endParaRPr .../>` after the runs. It uses the same attribute and child
+  emission as `<a:rPr>`, and `Some(RunStyle::default())` emits
+  `<a:endParaRPr/>`.
+- **`RunStyle`** gains `underline: Option<String>`, emitted as the `u`
+  attribute. It is an ST_TextUnderlineType such as sng, dbl or none.
+
+## Thesis source preparation, v2 (private input, generic code)
+
+- `extract_source.py SOURCE OUTPUT [--sha256 HEX] [--dw PATH]`:
+  - It keeps the frozen hash as the default.
+  - `--sha256` authorizes a different explicitly named source and is recorded
+    as `source_sha256`.
+  - It extracts every slide in `sldIdLst` order into `slides/sNN.json`.
+  - The template keeps every slide part, blanked to an empty `spTree`, with
+    timing and transitions removed. It no longer drops slides.
+  - New mappings: line dash and ends, `endParaRPr`, `u`, `custGeom` into
+    `Properties.custom`, and video pictures into `Picture.media`. Everything
+    else still fails closed.
+  - With `--dw`, each slide's `dw query timeline` result is saved as
+    `slides/sNN.timing.json`. Its `opaque` entries are listed in the manifest's
+    `unsupported_authored_features`.
+- `examples/thesis` builds every slide the manifest lists, in order. When
+  `sNN.timing.json` exists, the slide is compiled with
+  `timing::compile_animated_slide(slide, timeline, transition)`; otherwise it
+  uses `compile_slide`. It never reads source slide XML.
+- Private inputs and outputs stay under the ignored `fixtures/private/` and
+  `build/` directories.
