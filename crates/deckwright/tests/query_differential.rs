@@ -93,7 +93,8 @@ fn eased(p: f64, a: f64, d: f64) -> f64 {
 
 /// (visible, opacity, wipe_fraction, geometry) of one shape at time `t`, per query.md rules
 /// 1-7. Started effects are folded in (begin, document index) order; a fade or wipe only
-/// counts while active, and a finished fade holds nothing.
+/// counts while active, and a finished fade holds nothing. Motion is handled after them, as
+/// the latest-begun started motion only.
 fn reference(
     shape: &ShapeSnapshot,
     w: &[(Option<i128>, &Effect)],
@@ -135,28 +136,44 @@ fn reference(
     if !visible {
         opacity = 0.0;
     }
-    // Started motion offsets add up from the resting endpoint; a pending motion does nothing.
     let mut g = shape
         .geometry
         .clone()
         .expect("generated shapes have geometry");
-    for (b, _, e) in &mine {
-        if let EffectKind::Motion {
-            from_x,
-            from_y,
-            accelerate,
-            decelerate,
-            ..
-        } = e.kind
-        {
-            let Some(b) = b.filter(|b| *b <= t) else {
-                continue;
-            };
-            let p = progress(t - b, e.duration_ms);
-            let k = 1.0 - eased(p, accelerate, decelerate);
-            g.x += from_x * k * W;
-            g.y += from_y * k * H;
-        }
+    // Rule 6: the latest-begun started motion sets the offset from the static position, with
+    // ties going to the later effect in document order. Offsets are not summed, and a pending
+    // motion does nothing. The offset is from + (to - from) * eased(p), which is `eased` here.
+    let latest = mine
+        .iter()
+        .filter_map(|(b, i, e)| {
+            let b = (*b).filter(|b| *b <= t)?;
+            match e.kind {
+                EffectKind::Motion {
+                    from_x,
+                    from_y,
+                    to_x,
+                    to_y,
+                    accelerate,
+                    decelerate,
+                } => Some((
+                    b,
+                    *i,
+                    e.duration_ms,
+                    from_x,
+                    from_y,
+                    to_x,
+                    to_y,
+                    accelerate,
+                    decelerate,
+                )),
+                _ => None,
+            }
+        })
+        .max_by_key(|(b, i, ..)| (*b, *i));
+    if let Some((b, _, duration_ms, from_x, from_y, to_x, to_y, accelerate, decelerate)) = latest {
+        let k = eased(progress(t - b, duration_ms), accelerate, decelerate);
+        g.x += (from_x + (to_x - from_x) * k) * W;
+        g.y += (from_y + (to_y - from_y) * k) * H;
     }
     (visible, opacity, wipe, g)
 }
@@ -203,17 +220,25 @@ fn effect_kind() -> impl Strategy<Value = EffectKind> {
     ];
     let wipe =
         proptest::sample::select(dirs).prop_map(|direction| EffectKind::WipeIn { direction });
-    let motion = (-1.0..=1.0, -1.0..=1.0, 0.0..=1.0, 0.0..=1.0).prop_map(|(x, y, a, d)| {
-        let decelerate = d * (1.0 - a);
-        EffectKind::Motion {
-            from_x: x,
-            from_y: y,
-            to_x: 0.0,
-            to_y: 0.0,
-            accelerate: a,
-            decelerate,
-        }
-    });
+    let motion = (
+        -1.0..=1.0,
+        -1.0..=1.0,
+        -1.0..=1.0,
+        -1.0..=1.0,
+        0.0..=1.0,
+        0.0..=1.0,
+    )
+        .prop_map(|(x, y, tx, ty, a, d)| {
+            let decelerate = d * (1.0 - a);
+            EffectKind::Motion {
+                from_x: x,
+                from_y: y,
+                to_x: tx,
+                to_y: ty,
+                accelerate: a,
+                decelerate,
+            }
+        });
     prop_oneof![
         Just(EffectKind::Appear),
         Just(EffectKind::FadeIn),

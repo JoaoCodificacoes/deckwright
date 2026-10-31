@@ -201,8 +201,6 @@ pub fn validate_timeline(timeline: &Timeline) -> Result<()> {
                     .iter()
                     .all(|x| x.is_finite())
                     || [from_x, from_y, to_x, to_y].iter().any(|x| x.abs() > 100.0)
-                    || to_x != 0.0
-                    || to_y != 0.0
                     || accelerate < 0.0
                     || decelerate < 0.0
                     || accelerate + decelerate > 1.0)
@@ -967,7 +965,14 @@ pub fn parse_slide_timing(xml: &[u8], part: &str) -> Result<ParsedTiming> {
                     | "bldLst"
                     | "bldP"
             )
-            || (n.name == "by" && parent == "animScale");
+            || (n.name == "by" && parent == "animScale")
+            // The default centre of rotation at the origin carries no semantics; any other
+            // centre stays opaque.
+            || (n.name == "rCtr"
+                && parent == "animMotion"
+                && n.attrs.len() == 2
+                && attr(n, "x") == Some("0")
+                && attr(n, "y") == Some("0"));
         if n.namespace != P || !allowed {
             unknown.push(opaque(n, format!("unsupported timing element {}", n.name)));
             return;
@@ -1007,6 +1012,10 @@ pub fn parse_slide_timing(xml: &[u8], part: &str) -> Result<ParsedTiming> {
         }
         if n.name == "stCondLst" && n.children.len() != 1 {
             unknown.push(opaque(n, "multiple start conditions are unsupported"));
+        }
+        // PowerPoint writes an empty point-type list; any other list stays opaque.
+        if n.name == "animMotion" && attr(n, "ptsTypes").is_some_and(|v| !v.is_empty()) {
+            unknown.push(opaque(n, "unsupported motion point types"));
         }
         if n.name == "spTgt" && !n.children.is_empty() {
             unknown.push(opaque(n, "text/subshape targets are unsupported"));
