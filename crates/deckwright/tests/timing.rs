@@ -111,7 +111,9 @@ fn nonfinite_easing_and_nonzero_endpoint_rejected() {
         };
         assert!(compile_animated_slide(&slide(), &t, &Transition::None).is_err());
     }
-    for (to, accel, decel) in [(1.0, 0.4, 0.4), (0.0, 0.6, 0.6), (0.0, -0.1, 0.4)] {
+    // A non-zero endpoint is valid (layout-relative paths, timing.md wave 10);
+    // out-of-range endpoints and invalid easing are not.
+    for (to, accel, decel) in [(101.0, 0.4, 0.4), (0.0, 0.6, 0.6), (0.0, -0.1, 0.4)] {
         let t = Timeline {
             stages: vec![stage(
                 Trigger::OnClick,
