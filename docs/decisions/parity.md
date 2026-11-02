@@ -126,16 +126,98 @@ state, bounds and Morph queries see tables.
 - `Background::Fill { fill }` emits `<p:bgPr>{fill}<a:effectLst/></p:bgPr>`;
 - `Background::Reference { index: u32, color: Color }` emits `<p:bgRef idx>`.
 
-## Wave B (after wave A merges)
+## Wave B
 
-- **B1. Charts** (`chart.rs`, `ObjectKind::Chart`, `Deck::add_chart`):
-  - Bar, column, line, pie and scatter charts, with categories and series held
-    as cached values in a `chartN.xml` part.
-  - An embedded minimal xlsx with the same data, so the chart can be edited in
-    PowerPoint.
-  - A graphicFrame referencing the chart part, plus a title and a legend.
-- **B2. OLE objects** (`ole.rs`, `Deck::add_ole_object`): an embedded file
-  with a progId and preview image, placed in a graphicFrame `p:oleObj`.
-- **B3. Parity demo** (`examples/parity_demo`): one public deck that exercises
-  every feature above. It is read back by python-pptx and rendered by
-  LibreOffice.
+### B1. Charts (`chart.rs`, `ObjectKind::Chart`, `Deck::add_chart`)
+
+**Types.**
+- `Chart { kind: ChartKind, title: Option<String>, categories: Vec<String>,
+  series: Vec<Series>, legend: Option<String>, data_labels: bool, stacked:
+  bool }`.
+- `ChartKind` is snake_case: bar, column, line, pie, scatter.
+- `Series { name: String, values: Vec<f64>, x_values: Option<Vec<f64>>, color:
+  Option<Color> }`.
+- `legend` is r, l, t or b.
+
+**Validation.**
+- At least one series, and finite values.
+- Category charts: every `values` length equals `categories.len()`, and
+  `x_values` is None.
+- Scatter: each series' `x_values` length equals its `values` length, and
+  `categories` is empty.
+- Pie: exactly one series.
+- `stacked` is allowed only for bar and column.
+
+**Chart part (`ppt/charts/chartN.xml`).**
+- The root is `c:chartSpace`, with `c:roundedCorners val="0"`, then
+  `c:chart`. Inside `c:chart` come an optional `c:title` (rich text), then
+  `c:autoTitleDeleted`, then `c:plotArea`.
+- The plot area holds one chart-type element:
+  - bar and column: `c:barChart`, with `barDir` (bar or col), `grouping`
+    (clustered or stacked), `varyColors 0`, the series, `gapWidth 150`,
+    `overlap 100` when stacked, and two `axId` elements;
+  - line: `c:lineChart`, with `grouping standard`, `varyColors 0`, series with
+    `c:marker`, and two axes;
+  - pie: `c:pieChart`, with `varyColors 1`, one series and no axes;
+  - scatter: `c:scatterChart`, with `scatterStyle lineMarker`, `varyColors 0`,
+    series using `xVal`/`yVal`, and two `valAx`.
+- Category charts also get `c:catAx` and `c:valAx`, with matching IDs.
+- Each `c:ser` has: `idx`, `order`, a `tx` strRef with strCache, `spPr`
+  (solidFill when a color is set), and `cat` (strRef plus strCache) with
+  `val` (numRef plus numCache, formatCode General). Scatter series use
+  `xVal`/`yVal` numRef plus numCache instead.
+- Formulas point at the embedded sheet: `Sheet1!$B$1` for the first series
+  name, and `Sheet1!$A$2:$A$n` for the categories.
+- After the plot area come `c:legend` (with `legendPos` and
+  `overlay 0`), `c:plotVisOnly 1`, and `c:dispBlanksAs gap`. When
+  `data_labels` is set, `c:dLbls` with `showVal 1` goes in each chart-type
+  element.
+- The root ends with `c:externalData r:id` (`c:autoUpdate val="0"`).
+
+**Embedded workbook (`ppt/embeddings/Microsoft_Excel_Worksheet{N}.xlsx`).** A
+minimal SpreadsheetML package:
+- `[Content_Types].xml`, `_rels/.rels`, `xl/workbook.xml` (one sheet named
+  Sheet1), `xl/_rels/workbook.xml.rels` and `xl/worksheets/sheet1.xml`;
+- strings are written as `t="inlineStr"`;
+- category charts: A1 is empty, row 1 holds the series names, column A holds
+  the categories, and the series values run down columns B and onward;
+- scatter: each series takes a column pair holding its X and Y values.
+It must open in python-pptx (`chart.part.chart_workbook`) and in
+LibreOffice.
+
+**Deck and builder wiring.**
+- `Deck::add_chart(slide_part, &Chart) -> Result<String>` writes the chart
+  part, the workbook, the chart's rels (type `.../package`), the content-type
+  Override for the chart and the Default for xlsx, and the slide relationship
+  (type `.../chart`). It returns the slide relationship ID.
+- `ObjectKind::Chart { transform: Transform, relationship: String }` emits a
+  `p:graphicFrame` with `graphicData uri=".../drawingml/2006/chart"` and
+  `<c:chart r:id/>`.
+
+### B2. OLE objects (`ObjectKind::Ole`, `Deck::add_ole_object`)
+
+This follows python-pptx's `add_ole_object` form. Only OOXML packages are
+embedded (xlsx, docx, pptx). Arbitrary binaries would need an OLE compound
+file and are rejected with a clear error.
+
+- `Deck::add_ole_object(slide_part, bytes, ext, preview_png) ->
+  Result<OleLinks { object, preview }>`:
+  - writes `ppt/embeddings/{name}N.{ext}`, with the content-type Default for
+    the extension;
+  - adds the slide relationships: type `.../package` for the object and
+    `.../image` for the preview;
+  - maps the progId: xlsx to `Excel.Sheet.12`, docx to `Word.Document.12`,
+    pptx to `PowerPoint.Show.12`.
+- `ObjectKind::Ole { transform: Transform, prog_id: String, relationship:
+  String, preview_relationship: String, show_as_icon: bool }` emits a
+  `p:graphicFrame` with `graphicData
+  uri="http://schemas.openxmlformats.org/presentationml/2006/ole"`. Inside is
+  `<p:oleObj progId r:id showAsIcon?>` holding `<p:embed/>` and a `p:pic`.
+  That picture has a blipFill, using the preview relationship and a stretch,
+  plus spPr with the same transform.
+
+### B3. Parity demo (`examples/parity_demo`)
+
+One public deck exercising every A and B feature, built only through `Deck`
+and the model. It is read back by python-pptx and rendered by LibreOffice as
+local evidence.
