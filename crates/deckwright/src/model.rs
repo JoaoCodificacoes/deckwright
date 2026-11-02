@@ -73,6 +73,17 @@ pub enum ObjectKind {
         transform: Transform,
         table: crate::table::Table,
     },
+    /// OLE object in a `p:graphicFrame`. `relationship` names the embedded OOXML package
+    /// and `preview_relationship` the PNG shown in its place. The frame transform is
+    /// position and extent only.
+    Ole {
+        transform: Transform,
+        prog_id: String,
+        relationship: String,
+        preview_relationship: String,
+        #[serde(default)]
+        show_as_icon: bool,
+    },
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -504,9 +515,9 @@ impl Slide {
             ObjectKind::Shape { properties, .. }
             | ObjectKind::Picture { properties, .. }
             | ObjectKind::Connector { properties, .. } => properties.transform.as_mut(),
-            ObjectKind::Group { transform, .. } | ObjectKind::Table { transform, .. } => {
-                Some(transform)
-            }
+            ObjectKind::Group { transform, .. }
+            | ObjectKind::Table { transform, .. }
+            | ObjectKind::Ole { transform, .. } => Some(transform),
         }
         .ok_or_else(|| {
             authored_error(

@@ -85,6 +85,7 @@ fn update_mappings(manifest: &mut serde_json::Value, slides: &[Slide]) -> Result
                 }
                 ObjectKind::Group { transform, .. } => ("group", Some(transform), None, None),
                 ObjectKind::Table { transform, .. } => ("table", Some(transform), None, None),
+                ObjectKind::Ole { transform, .. } => ("ole", Some(transform), None, None),
             };
             // Source provenance uses its own stable-key map, never native IDs.
             let source_id = sources

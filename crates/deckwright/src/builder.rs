@@ -777,6 +777,72 @@ fn object(o: &Object) -> String {
             );
             content += &crate::table::frame_content(t, table);
         }
+        ObjectKind::Ole {
+            transform: t,
+            prog_id,
+            relationship,
+            preview_relationship,
+            show_as_icon,
+        } => {
+            // Mirrors python-pptx's `new_ole_object_graphicFrame`. The preview is stretched
+            // over the frame, so imgW and imgH carry the frame extent.
+            tag = "p:graphicFrame";
+            let uri = "http://schemas.openxmlformats.org/presentationml/2006/ole";
+            content = element(
+                "p:nvGraphicFramePr",
+                String::new(),
+                nv + &element(
+                    "p:cNvGraphicFramePr",
+                    String::new(),
+                    element("a:graphicFrameLocks", attr("noGrp", 1), String::new()),
+                ) + &empty("p:nvPr"),
+            );
+            let off_ext = element("a:off", attr("x", t.x.0) + &attr("y", t.y.0), String::new())
+                + &element(
+                    "a:ext",
+                    attr("cx", t.width.0) + &attr("cy", t.height.0),
+                    String::new(),
+                );
+            let pic_nv = element(
+                "p:nvPicPr",
+                String::new(),
+                element("p:cNvPr", attr("id", 0) + &attr("name", ""), String::new())
+                    + &empty("p:cNvPicPr")
+                    + &empty("p:nvPr"),
+            );
+            let blip_fill = element(
+                "p:blipFill",
+                String::new(),
+                element(
+                    "a:blip",
+                    attr("r:embed", preview_relationship),
+                    String::new(),
+                ) + &element("a:stretch", String::new(), empty("a:fillRect")),
+            );
+            let sp_pr = element(
+                "p:spPr",
+                String::new(),
+                element("a:xfrm", String::new(), off_ext.clone())
+                    + &element("a:prstGeom", attr("prst", "rect"), empty("a:avLst")),
+            );
+            let pic = element("p:pic", String::new(), pic_nv + &blip_fill + &sp_pr);
+            let ole = element(
+                "p:oleObj",
+                attr("progId", prog_id)
+                    + &attr("r:id", relationship)
+                    + &if *show_as_icon {
+                        attr("showAsIcon", 1)
+                    } else {
+                        String::new()
+                    }
+                    + &attr("imgW", t.width.0)
+                    + &attr("imgH", t.height.0),
+                empty("p:embed") + &pic,
+            );
+            let xfrm = element("p:xfrm", String::new(), off_ext);
+            let data = element("a:graphicData", attr("uri", uri), ole);
+            content += &(xfrm + &element("a:graphic", String::new(), data));
+        }
         ObjectKind::Group {
             transform: t,
             children,
@@ -947,6 +1013,43 @@ fn validate(slide: &Slide) -> Result<()> {
                 }
                 ObjectKind::Table { transform, table } => {
                     crate::table::validate(transform, table, &o.key)?;
+                }
+                ObjectKind::Ole {
+                    transform,
+                    prog_id,
+                    relationship,
+                    preview_relationship,
+                    ..
+                } => {
+                    check_transform(transform, &o.key)?;
+                    if transform.rotation.is_some()
+                        || transform.flip_h
+                        || transform.flip_v
+                        || transform.child.is_some()
+                    {
+                        return Err(authored_error(
+                            &o.key,
+                            "OLE frame supports only x, y, width and height",
+                        ));
+                    }
+                    if transform.width.0 == 0 || transform.height.0 == 0 {
+                        return Err(authored_error(&o.key, "OLE frame extent must be nonzero"));
+                    }
+                    if prog_id.is_empty() || prog_id.chars().any(char::is_control) {
+                        return Err(authored_error(&o.key, "OLE progId must be nonempty text"));
+                    }
+                    if relationship.is_empty() {
+                        return Err(authored_error(
+                            &o.key,
+                            "OLE object requires relationship ID",
+                        ));
+                    }
+                    if preview_relationship.is_empty() {
+                        return Err(authored_error(
+                            &o.key,
+                            "OLE preview requires relationship ID",
+                        ));
+                    }
                 }
             }
         }
