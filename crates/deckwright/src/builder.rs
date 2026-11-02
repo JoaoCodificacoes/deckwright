@@ -15,6 +15,50 @@ const PATH_FILL_MODES: &[&str] = &[
     "darken",
     "darkenLess",
 ];
+/// ST_TextAutonumberScheme values, in schema order.
+const AUTONUMBER_SCHEMES: &[&str] = &[
+    "alphaLcParenBoth",
+    "alphaLcParenR",
+    "alphaLcPeriod",
+    "alphaUcParenBoth",
+    "alphaUcParenR",
+    "alphaUcPeriod",
+    "arabic1Minus",
+    "arabic2Minus",
+    "arabicDBPeriod",
+    "arabicDBPlain",
+    "arabicParenBoth",
+    "arabicParenR",
+    "arabicPeriod",
+    "arabicPlain",
+    "circleNumDBPlain",
+    "circleNumWdBlackPlain",
+    "circleNumWdWhitePlain",
+    "ea1ChsPeriod",
+    "ea1ChsPlain",
+    "ea1ChtPeriod",
+    "ea1ChtPlain",
+    "ea1JpnChsDBPeriod",
+    "ea1JpnKorPeriod",
+    "ea1JpnKorPlain",
+    "hebrew2Minus",
+    "hindiAlpha1Period",
+    "hindiAlphaPeriod",
+    "hindiNumParenR",
+    "hindiNumPeriod",
+    "romanLcParenBoth",
+    "romanLcParenR",
+    "romanLcPeriod",
+    "romanUcParenBoth",
+    "romanUcParenR",
+    "romanUcPeriod",
+    "thaiAlphaParenBoth",
+    "thaiAlphaParenR",
+    "thaiAlphaPeriod",
+    "thaiNumParenBoth",
+    "thaiNumParenR",
+    "thaiNumPeriod",
+];
 /// ECMA-376 ST_ShapeType preset names, sorted for binary_search.
 #[rustfmt::skip]
 const PRESET_GEOMETRIES: &[&str] = &[
@@ -327,12 +371,20 @@ fn text(t: &TextBody) -> String {
                     );
                 }
             }
-            paragraph += &element("a:pPr", opt("algn", pp.alignment.as_ref()), spacing);
+            if let Some(b) = &pp.bullet {
+                spacing += &bullet(b);
+            }
+            let attrs = opt("algn", pp.alignment.as_ref())
+                + &opt("lvl", pp.level)
+                + &opt("marL", pp.margin_left.map(|v| v.0))
+                + &opt("indent", pp.indent.map(|v| v.0));
+            paragraph += &element("a:pPr", attrs, spacing);
         }
         for r in &p.runs {
             let mut run = String::new();
-            if let Some(s) = &r.style {
-                run += &run_properties("a:rPr", s);
+            if r.style.is_some() || r.hyperlink.is_some() {
+                let style = r.style.clone().unwrap_or_default();
+                run += &run_properties("a:rPr", &style, r.hyperlink.as_ref());
             }
             // xml:space makes authored leading/trailing and repeated whitespace explicit.
             run += &element("a:t", attr("xml:space", "preserve"), escape(&r.text));
@@ -347,14 +399,54 @@ fn text(t: &TextBody) -> String {
             };
         }
         if let Some(end) = &p.end_style {
-            paragraph += &run_properties("a:endParaRPr", end);
+            paragraph += &run_properties("a:endParaRPr", end, None);
         }
         content += &element("a:p", String::new(), paragraph);
     }
     element("p:txBody", String::new(), content)
 }
+/// Paragraph bullet children, in schema order: buClr, buSzPct, buFont, then the bullet.
+fn bullet(b: &Bullet) -> String {
+    match b {
+        Bullet::None => empty("a:buNone"),
+        Bullet::Char {
+            char: glyph,
+            font,
+            color: bullet_color,
+            size_percent,
+        } => {
+            let mut children = bullet_color
+                .as_ref()
+                .map(|c| element("a:buClr", String::new(), color(c)))
+                .unwrap_or_default();
+            if let Some(size) = size_percent {
+                // ST_TextBulletSizePercent is in thousandths of a percent.
+                children += &element("a:buSzPct", attr("val", size * 1000), String::new());
+            }
+            if let Some(font) = font {
+                children += &element("a:buFont", attr("typeface", font), String::new());
+            }
+            children + &element("a:buChar", attr("char", glyph), String::new())
+        }
+        Bullet::AutoNumber { scheme, start_at } => element(
+            "a:buAutoNum",
+            attr("type", scheme) + &opt("startAt", *start_at),
+            String::new(),
+        ),
+    }
+}
+fn hyperlink(tag: &str, h: &Hyperlink) -> String {
+    element(
+        tag,
+        attr("r:id", &h.relationship)
+            + &opt("action", h.action.as_ref())
+            + &opt("tooltip", h.tooltip.as_ref()),
+        String::new(),
+    )
+}
 /// Shared by a:rPr and a:endParaRPr: identical attributes and children, different tag.
-fn run_properties(tag: &str, s: &RunStyle) -> String {
+/// Only a:rPr carries a hyperlink; hlinkClick follows latin in schema order.
+fn run_properties(tag: &str, s: &RunStyle, link: Option<&Hyperlink>) -> String {
     let attrs = opt("sz", s.size)
         + &opt("b", s.bold.map(u8::from))
         + &opt("i", s.italic.map(u8::from))
@@ -367,6 +459,9 @@ fn run_properties(tag: &str, s: &RunStyle) -> String {
     if let Some(font) = &s.font {
         children += &element("a:latin", attr("typeface", font), String::new());
     }
+    if let Some(link) = link {
+        children += &hyperlink("a:hlinkClick", link);
+    }
     element(tag, attrs, children)
 }
 fn common(o: &Object) -> String {
@@ -377,6 +472,13 @@ fn common(o: &Object) -> String {
         attr("xmlns:dw", "urn:deckwright:source:v1") + &attr("key", &o.key),
         String::new(),
     );
+    // Object hyperlinks come first in cNvPr. A video's media click action follows them;
+    // validation rejects a slide that has both.
+    let hyperlink_child = o
+        .hyperlink
+        .as_ref()
+        .map(|h| hyperlink("a:hlinkClick", h))
+        .unwrap_or_default();
     // A video picture's click action is the media playback action (before extLst).
     let link = match &o.kind {
         ObjectKind::Picture { media: Some(_), .. } => element(
@@ -389,11 +491,13 @@ fn common(o: &Object) -> String {
     element(
         "p:cNvPr",
         attrs,
-        link + &element(
-            "a:extLst",
-            String::new(),
-            element("a:ext", attr("uri", "urn:deckwright:source:v1"), key),
-        ),
+        hyperlink_child
+            + &link
+            + &element(
+                "a:extLst",
+                String::new(),
+                element("a:ext", attr("uri", "urn:deckwright:source:v1"), key),
+            ),
     )
 }
 fn picture_nv_pr(media: &Option<MediaLink>) -> String {
@@ -601,6 +705,15 @@ fn validate(slide: &Slide) -> Result<()> {
                     &o.key,
                     "Morph matching name must start with !!",
                 ));
+            }
+            if let Some(h) = &o.hyperlink {
+                check_hyperlink(h, &o.key)?;
+                if matches!(&o.kind, ObjectKind::Picture { media: Some(_), .. }) {
+                    return Err(authored_error(
+                        &o.key,
+                        "video picture media link cannot be combined with a hyperlink",
+                    ));
+                }
             }
             match &o.kind {
                 ObjectKind::Group {
@@ -1009,6 +1122,36 @@ fn check_run_style(style: &RunStyle, key: &str) -> Result<()> {
     }
     Ok(())
 }
+fn check_hyperlink(link: &Hyperlink, key: &str) -> Result<()> {
+    if link.relationship.is_empty() {
+        return Err(authored_error(key, "hyperlink requires relationship ID"));
+    }
+    Ok(())
+}
+fn check_bullet(bullet: &Bullet, key: &str) -> Result<()> {
+    match bullet {
+        Bullet::None => {}
+        Bullet::Char {
+            char: glyph,
+            size_percent,
+            ..
+        } => {
+            if glyph.is_empty() {
+                return Err(authored_error(key, "bullet character must not be empty"));
+            }
+            if let Some(size) = size_percent {
+                range((*size).into(), 25, 400, key, "bullet size percent")?;
+            }
+        }
+        Bullet::AutoNumber { scheme, start_at } => {
+            member(scheme, AUTONUMBER_SCHEMES, key, "auto number scheme")?;
+            if let Some(start) = start_at {
+                range((*start).into(), 1, 32767, key, "bullet start number")?;
+            }
+        }
+    }
+    Ok(())
+}
 fn check_text(text: &TextBody, key: &str) -> Result<()> {
     if text.paragraphs.is_empty() {
         return Err(authored_error(
@@ -1042,6 +1185,19 @@ fn check_text(text: &TextBody, key: &str) -> Result<()> {
             for spacing in [p.space_before, p.space_after].into_iter().flatten() {
                 range(spacing.into(), 0, 158400, key, "paragraph spacing")?;
             }
+            if let Some(level) = p.level {
+                range(level.into(), 0, 8, key, "paragraph level")?;
+            }
+            // ST_TextMargin and ST_TextIndent schema domains.
+            if let Some(margin) = p.margin_left {
+                range(margin.0, 0, 51206400, key, "paragraph left margin")?;
+            }
+            if let Some(indent) = p.indent {
+                range(indent.0, -51206400, 51206400, key, "paragraph indent")?;
+            }
+            if let Some(bullet) = &p.bullet {
+                check_bullet(bullet, key)?;
+            }
         }
         if let Some(end) = &paragraph.end_style {
             check_run_style(end, key)?;
@@ -1049,6 +1205,9 @@ fn check_text(text: &TextBody, key: &str) -> Result<()> {
         for run in &paragraph.runs {
             if let Some(style) = &run.style {
                 check_run_style(style, key)?;
+            }
+            if let Some(link) = &run.hyperlink {
+                check_hyperlink(link, key)?;
             }
             if let Some(field) = &run.field {
                 let bytes = field.id.as_bytes();

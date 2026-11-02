@@ -283,6 +283,7 @@ fn explosion_names_are_not_preset_geometry() {
             name: "s".into(),
             morph_name: None,
             description: None,
+            hyperlink: None,
             kind: deckwright::model::ObjectKind::Shape {
                 textbox: false,
                 lock_no_group: false,

@@ -7,6 +7,7 @@ fn slide() -> Slide {
             name: "Box".into(),
             morph_name: None,
             description: None,
+            hyperlink: None,
             kind: ObjectKind::Shape {
                 textbox: false,
                 lock_no_group: false,

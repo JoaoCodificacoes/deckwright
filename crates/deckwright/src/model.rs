@@ -19,6 +19,9 @@ pub struct Object {
     pub morph_name: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
+    /// Emitted as the first child of `p:cNvPr`. Mutually exclusive with a video's media link.
+    #[serde(default)]
+    pub hyperlink: Option<Hyperlink>,
     pub kind: ObjectKind,
 }
 
@@ -328,6 +331,52 @@ pub struct ParagraphProperties {
     pub space_before: Option<i32>,
     #[serde(default)]
     pub space_after: Option<i32>,
+    /// Outline level, 0..=8, emitted as `lvl`.
+    #[serde(default)]
+    pub level: Option<u8>,
+    /// Left margin, emitted as `marL`.
+    #[serde(default)]
+    pub margin_left: Option<Emu>,
+    /// First-line indent, emitted as `indent`; may be negative for hanging indents.
+    #[serde(default)]
+    pub indent: Option<Emu>,
+    #[serde(default)]
+    pub bullet: Option<Bullet>,
+}
+/// Paragraph bullet. `None` emits `a:buNone`, which suppresses inherited bullets.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Bullet {
+    None,
+    Char {
+        /// The bullet character, emitted as `a:buChar`.
+        char: String,
+        #[serde(default)]
+        font: Option<String>,
+        #[serde(default)]
+        color: Option<Color>,
+        /// Bullet size as a percentage of text size, 25..=400.
+        #[serde(default)]
+        size_percent: Option<u32>,
+    },
+    AutoNumber {
+        /// ST_TextAutonumberScheme, such as arabicPeriod or romanLcParenR.
+        scheme: String,
+        /// First number, 1..=32767.
+        #[serde(default)]
+        start_at: Option<u32>,
+    },
+}
+/// Hyperlink target. URL links carry no action; jump-to-slide uses `ppaction://hlinksldjump`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Hyperlink {
+    /// Relationship ID created for the target, such as an external URL or a slide.
+    pub relationship: String,
+    #[serde(default)]
+    pub action: Option<String>,
+    #[serde(default)]
+    pub tooltip: Option<String>,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -337,6 +386,9 @@ pub struct TextRun {
     pub style: Option<RunStyle>,
     #[serde(default)]
     pub field: Option<Field>,
+    /// Emitted as `a:hlinkClick` inside `a:rPr`, after `latin`.
+    #[serde(default)]
+    pub hyperlink: Option<Hyperlink>,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

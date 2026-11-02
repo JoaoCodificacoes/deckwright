@@ -262,6 +262,7 @@ mod tests {
             name: "Group".into(),
             morph_name: None,
             description: None,
+            hyperlink: None,
             kind: ObjectKind::Group {
                 transform: Transform {
                     width: Emu(100),
