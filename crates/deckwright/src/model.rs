@@ -62,6 +62,11 @@ pub enum ObjectKind {
         transform: Transform,
         children: Vec<Object>,
     },
+    /// Native table in a `p:graphicFrame`; the frame transform is position and extent only.
+    Table {
+        transform: Transform,
+        table: crate::table::Table,
+    },
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -403,7 +408,9 @@ impl Slide {
             ObjectKind::Shape { properties, .. }
             | ObjectKind::Picture { properties, .. }
             | ObjectKind::Connector { properties, .. } => properties.transform.as_mut(),
-            ObjectKind::Group { transform, .. } => Some(transform),
+            ObjectKind::Group { transform, .. } | ObjectKind::Table { transform, .. } => {
+                Some(transform)
+            }
         }
         .ok_or_else(|| {
             authored_error(

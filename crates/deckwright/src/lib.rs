@@ -21,5 +21,6 @@ pub use package::{Limits, Package};
 pub mod check;
 pub mod query;
 pub mod session;
+pub mod table;
 pub mod template;
 pub mod timing;
