@@ -1,4 +1,61 @@
-# Reference feature coverage
+# Slide coverage
+
+## Current reference: v2 thesis deck (adopted 2026-11-02)
+
+The owner adopted the PowerPoint-authored v2 thesis deck (34 slides, 16:9) as
+the reconstruction reference. Its bytes, extracted source and outputs stay
+private under ignored `fixtures/private/` and `build/`. This table holds
+structural counts only, derived locally with `dw query timeline` and package
+inspection.
+
+Every slide uses the same validation method:
+- `verify_static` reports exact native semantics;
+- parsed timelines and transitions are identical (canonical comparison);
+- the LibreOffice render is pixel-identical;
+- the owner reviewed playback in PowerPoint.
+
+The results are exact on 34/34 slides, with 397 effects and 0 opaque timing
+entries. The deck is built by `examples/thesis` (#5, #6) using the engine from
+#4; see the closing evidence on #4, #5 and #6.
+
+| Slide | Shapes/pictures/connectors/groups | Effects (typed) | Features |
+|---|---|---|---|
+| 1 | 3/1/1/0 | none | static |
+| 2 | 32/7/1/0 | fade_in:35 | Morph |
+| 3 | 93/1/36/3 | fade_in:12 | Morph |
+| 4 | 24/5/1/0 | fade_in:20 | Morph |
+| 5 | 19/2/1/0 | fade_in:15 | Morph |
+| 6 | 22/2/11/0 | fade_in:10, wipe_in:10 | Morph |
+| 7 | 26/2/7/0 | fade_in:25 | Morph, auto-start |
+| 8 | 21/2/18/0 | fade_in:34 | Morph |
+| 9 | 16/10/1/0 | fade_in:17 | Morph |
+| 10 | 39/18/9/0 | fade_in:57 | Morph |
+| 11 | 21/4/2/0 | fade_in:8, wipe_in:3 | Morph, custom geometry |
+| 12 | 27/5/13/0 | fade_in:23, wipe_in:7 | Morph, custom geometry |
+| 13 | 5/3/1/0 | none | Morph |
+| 14 | 5/3/1/0 | media_play:1 | Morph, auto-start, video |
+| 15 | 6/3/1/0 | none | Morph |
+| 16 | 11/3/1/0 | fade_in:10 | Morph |
+| 17 | 9/3/1/0 | fade_in:1 | Morph |
+| 18 | 18/3/1/0 | fade_in:9 | Morph |
+| 19 | 13/8/1/0 | fade_in:14, motion:4 | Morph, motion chain |
+| 20 | 26/2/2/0 | fade_in:18, wipe_in:4 | Morph |
+| 21 | 25/2/6/0 | fade_in:22, wipe_in:2 | Morph, custom geometry |
+| 22 | 13/3/1/0 | fade_in:10 | Morph |
+| 23 | 23/9/1/0 | fade_in:21, wipe_in:5 | Morph |
+| 24 | 8/2/1/0 | none | Morph |
+| 25 | 20/5/1/0 | none | static |
+| 26 | 24/1/14/0 | none | static |
+| 27 | 15/6/4/0 | none | static |
+| 28 | 34/1/10/0 | none | static |
+| 29 | 31/1/9/0 | none | static |
+| 30 | 22/4/10/0 | none | static |
+| 31 | 23/1/7/0 | none | custom geometry, static |
+| 32 | 47/1/7/0 | none | static |
+| 33 | 35/1/5/0 | none | static |
+| 34 | 14/1/7/0 | none | static |
+
+## Historical: frozen 25-slide reference
 
 Supervision followup: a later neutral rerun (`deckwright-neutral-observe-5`) blocked in COM before fixture creation, and the former Start-Job/Stop-Job parent also failed to complete its timeout. This is a failed rerun, not replacement evidence for the successful neutral-4 trace. Only the verified owned PowerShell worker/supervisor processes were stopped; no Office process was terminated. Export/identity/observation now share an explicit hidden child-process supervisor; a neutral 30-second sleep was interrupted at the one-second timeout in 1.07 seconds, with argument-fidelity checks and no COM. Office was not retried while the user's PowerPoint instance was busy. Prior static exports and source trace 3 remain the actual successful Office evidence.
 
