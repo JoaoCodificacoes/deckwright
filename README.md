@@ -52,6 +52,13 @@ documents private source preparation and typed text/layout edits. The neutral
 blank template. Timing compilation and state/Morph queries are implemented; their
 PowerPoint oracle verification and the full 25-slide reconstruction remain pending.
 
+## Presentation authoring skill
+
+The [Deckwright presentation skill](skills/deckwright-presentations/SKILL.md)
+adapts the former `morph-deck` Python authoring workflow to this repository's
+Rust model, Morph timing, queries, and checks. `AGENTS.md` points agents to it
+when they create or edit a deck. The Python package and CLI were not moved.
+
 ## Reference assets
 
 The thesis deck, extracted media, detailed slide inventory and private oracle evidence remain local and are excluded from Git. Implementation must preserve original wording and visuals and keep native slide objects editable. Use generated neutral fixtures in public CI.
