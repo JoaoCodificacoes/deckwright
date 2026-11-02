@@ -71,6 +71,13 @@ pub struct VideoLinks {
     pub poster: String,
 }
 
+/// Relationship IDs for one OLE object: the embedded package and its PNG preview.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OleLinks {
+    pub object: String,
+    pub preview: String,
+}
+
 /// Core document properties. `None` leaves the existing element untouched.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CoreProperties {
@@ -197,6 +204,36 @@ impl Deck {
                 media: media_id,
                 poster,
             })
+        })
+    }
+
+    /// Embeds an OOXML package as an OLE object with a PNG preview, following python-pptx.
+    /// `ext` is xlsx, docx or pptx; other extensions are rejected. The bytes must be a zip.
+    /// The caller pairs the object with its progId in `ObjectKind::Ole`: xlsx
+    /// `Excel.Sheet.12`, docx `Word.Document.12`, pptx `PowerPoint.Show.12`.
+    pub fn add_ole_object(
+        &mut self,
+        slide_part: &str,
+        bytes: Vec<u8>,
+        ext: &str,
+        preview_png: Vec<u8>,
+    ) -> Result<OleLinks> {
+        let (stem, content_type) = ole_package_kind(slide_part, ext)?;
+        let ext = ext.to_ascii_lowercase();
+        if !preview_png.starts_with(PNG_SIGNATURE) {
+            return Err(err(slide_part, "OLE preview must be PNG bytes"));
+        }
+        if zip::ZipArchive::new(std::io::Cursor::new(bytes.as_slice())).is_err() {
+            return Err(err(slide_part, "OLE object bytes must be a zip package"));
+        }
+        self.mutate(|tx| {
+            tx.require_slide(slide_part)?;
+            let part = tx.fresh("ppt/embeddings", stem, &ext);
+            tx.put(&part, bytes);
+            tx.ensure_default(&ext, content_type, &part)?;
+            let object = tx.link(slide_part, OLE_PACKAGE_REL, &part, false)?;
+            let preview = tx.image(slide_part, &preview_png, "png", "image/png")?;
+            Ok(OleLinks { object, preview })
         })
     }
 
@@ -666,6 +703,30 @@ fn video_kind(slide: &str, ext: &str) -> Result<(&'static str, &'static str)> {
         "wmv" => ("wmv", "video/x-ms-wmv"),
         "avi" => ("avi", "video/x-msvideo"),
         _ => return Err(err(slide, format!("unsupported video extension {ext:?}"))),
+    })
+}
+
+/// Relationship type python-pptx uses for an OLE object package (`RT.PACKAGE`).
+const OLE_PACKAGE_REL: &str =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/package";
+const XLSX_CT: &str = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const DOCX_CT: &str = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const PPTX_CT: &str = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+
+/// python-pptx part stem and content type for an embeddable OOXML package extension.
+fn ole_package_kind(slide: &str, ext: &str) -> Result<(&'static str, &'static str)> {
+    Ok(match ext.to_ascii_lowercase().as_str() {
+        "xlsx" => ("Microsoft_Excel_Sheet", XLSX_CT),
+        "docx" => ("Microsoft_Word_Document", DOCX_CT),
+        "pptx" => ("Microsoft_PowerPoint_Presentation", PPTX_CT),
+        _ => {
+            return Err(err(
+                slide,
+                format!(
+                    "OLE object extension {ext:?} is not supported; only OOXML packages (xlsx, docx or pptx) can be embedded"
+                ),
+            ));
+        }
     })
 }
 
