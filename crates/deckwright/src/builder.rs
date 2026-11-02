@@ -777,6 +777,22 @@ fn object(o: &Object) -> String {
             );
             content += &crate::table::frame_content(t, table);
         }
+        ObjectKind::Chart {
+            transform: t,
+            relationship,
+        } => {
+            tag = "p:graphicFrame";
+            content = element(
+                "p:nvGraphicFramePr",
+                String::new(),
+                nv + &element(
+                    "p:cNvGraphicFramePr",
+                    String::new(),
+                    element("a:graphicFrameLocks", attr("noGrp", 1), String::new()),
+                ) + &empty("p:nvPr"),
+            );
+            content += &crate::chart::frame_content(t, relationship);
+        }
         ObjectKind::Group {
             transform: t,
             children,
@@ -947,6 +963,12 @@ fn validate(slide: &Slide) -> Result<()> {
                 }
                 ObjectKind::Table { transform, table } => {
                     crate::table::validate(transform, table, &o.key)?;
+                }
+                ObjectKind::Chart {
+                    transform,
+                    relationship,
+                } => {
+                    crate::chart::validate_frame(transform, relationship, &o.key)?;
                 }
             }
         }

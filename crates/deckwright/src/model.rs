@@ -73,6 +73,11 @@ pub enum ObjectKind {
         transform: Transform,
         table: crate::table::Table,
     },
+    /// Native chart in a `p:graphicFrame`; `relationship` is the ID `Deck::add_chart` returned.
+    Chart {
+        transform: Transform,
+        relationship: String,
+    },
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -504,9 +509,9 @@ impl Slide {
             ObjectKind::Shape { properties, .. }
             | ObjectKind::Picture { properties, .. }
             | ObjectKind::Connector { properties, .. } => properties.transform.as_mut(),
-            ObjectKind::Group { transform, .. } | ObjectKind::Table { transform, .. } => {
-                Some(transform)
-            }
+            ObjectKind::Group { transform, .. }
+            | ObjectKind::Table { transform, .. }
+            | ObjectKind::Chart { transform, .. } => Some(transform),
         }
         .ok_or_else(|| {
             authored_error(
