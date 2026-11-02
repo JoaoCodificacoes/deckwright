@@ -85,6 +85,7 @@ fn slide_with(table: Table, transform: Transform) -> Slide {
             description: None,
             kind: ObjectKind::Table { transform, table },
         }],
+        ..Default::default()
     }
 }
 
