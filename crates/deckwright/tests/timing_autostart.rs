@@ -35,6 +35,7 @@ fn slide() -> Slide {
                 text: None,
             },
         }],
+        ..Default::default()
     }
 }
 

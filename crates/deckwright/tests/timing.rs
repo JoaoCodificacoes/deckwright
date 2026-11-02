@@ -29,6 +29,7 @@ fn slide() -> Slide {
                 text: None,
             },
         }],
+        ..Default::default()
     }
 }
 fn effect(kind: EffectKind) -> Effect {

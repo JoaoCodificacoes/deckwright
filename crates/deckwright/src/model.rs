@@ -7,6 +7,9 @@ use serde::{Deserialize, Serialize};
 #[serde(deny_unknown_fields)]
 pub struct Slide {
     pub objects: Vec<Object>,
+    /// Emitted as `p:bg` before the shape tree; None inherits the layout or master background.
+    #[serde(default)]
+    pub background: Option<Background>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -198,7 +201,48 @@ pub enum Color {
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Fill {
     None,
-    Solid { color: Color },
+    Solid {
+        color: Color,
+    },
+    /// Exactly one of `angle` (linear, 60000ths of a degree) or `path` (circle, rect or shape).
+    Gradient {
+        stops: Vec<GradientStop>,
+        #[serde(default)]
+        angle: Option<i32>,
+        #[serde(default)]
+        path: Option<String>,
+        rotate_with_shape: bool,
+    },
+    /// `preset` is ST_PresetPatternVal, such as pct50 or dkDnDiag.
+    Pattern {
+        preset: String,
+        foreground: Color,
+        background: Color,
+    },
+    /// `relationship` is an image relationship ID on the slide.
+    Picture {
+        relationship: String,
+    },
+}
+/// `position` is in 1000ths of a percent: 0..=100000.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GradientStop {
+    pub position: u32,
+    pub color: Color,
+}
+/// Slide background: a fill (`p:bgPr`) or a theme background style reference (`p:bgRef`).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Background {
+    Fill {
+        fill: Fill,
+    },
+    /// `index` is 1..=3 (fill styles) or 1001..=1003 (background fill styles).
+    Reference {
+        index: u32,
+        color: Color,
+    },
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

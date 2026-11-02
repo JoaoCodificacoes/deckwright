@@ -183,6 +183,7 @@ fn slides() -> [(Slide, Timeline, Transition); 3] {
         (
             Slide {
                 objects: vec![title, first],
+                ..Default::default()
             },
             Timeline::default(),
             Transition::None,
@@ -190,6 +191,7 @@ fn slides() -> [(Slide, Timeline, Transition); 3] {
         (
             Slide {
                 objects: vec![second, dot],
+                ..Default::default()
             },
             Timeline {
                 stages: vec![stage(
@@ -203,6 +205,7 @@ fn slides() -> [(Slide, Timeline, Transition); 3] {
         (
             Slide {
                 objects: vec![third, arrow],
+                ..Default::default()
             },
             Timeline {
                 stages: vec![

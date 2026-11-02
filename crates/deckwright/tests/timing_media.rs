@@ -34,6 +34,7 @@ fn shape(id: u32) -> Object {
 fn slide() -> Slide {
     Slide {
         objects: vec![shape(2), shape(3)],
+        ..Default::default()
     }
 }
 
