@@ -31,6 +31,7 @@ fn shape(key: &str, id: u32, name: &str, preset: &str, rect: [i64; 4], rgb: &str
         name: name.into(),
         morph_name: None,
         description: None,
+        hyperlink: None,
         kind: ObjectKind::Shape {
             textbox: false,
             lock_no_group: false,
@@ -89,6 +90,7 @@ fn morph_deck(package: &Package) -> Package {
                     [600_000, 2_400_000, 2_000_000, 2_000_000],
                     "2563EB",
                 )],
+                ..Default::default()
             },
             Timeline::default(),
             Transition::None,
@@ -113,6 +115,7 @@ fn morph_deck(package: &Package) -> Package {
                         "10B981",
                     ),
                 ],
+                ..Default::default()
             },
             Timeline {
                 stages: vec![Stage {

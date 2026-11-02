@@ -48,6 +48,7 @@ fn label(text: &str, rgb: &str, size: u32) -> TextBody {
                     ..Default::default()
                 }),
                 field: None,
+                hyperlink: None,
             }],
         }],
     }
@@ -69,6 +70,7 @@ fn shape(
         name: name.into(),
         morph_name: None,
         description: None,
+        hyperlink: None,
         kind: ObjectKind::Shape {
             textbox: false,
             lock_no_group: false,
@@ -183,6 +185,7 @@ fn slides() -> [(Slide, Timeline, Transition); 3] {
         (
             Slide {
                 objects: vec![title, first],
+                ..Default::default()
             },
             Timeline::default(),
             Transition::None,
@@ -190,6 +193,7 @@ fn slides() -> [(Slide, Timeline, Transition); 3] {
         (
             Slide {
                 objects: vec![second, dot],
+                ..Default::default()
             },
             Timeline {
                 stages: vec![stage(
@@ -203,6 +207,7 @@ fn slides() -> [(Slide, Timeline, Transition); 3] {
         (
             Slide {
                 objects: vec![third, arrow],
+                ..Default::default()
             },
             Timeline {
                 stages: vec![

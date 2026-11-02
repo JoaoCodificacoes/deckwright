@@ -7,6 +7,9 @@ use serde::{Deserialize, Serialize};
 #[serde(deny_unknown_fields)]
 pub struct Slide {
     pub objects: Vec<Object>,
+    /// Emitted as `p:bg` before the shape tree; None inherits the layout or master background.
+    #[serde(default)]
+    pub background: Option<Background>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -19,6 +22,9 @@ pub struct Object {
     pub morph_name: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
+    /// Emitted as the first child of `p:cNvPr`. Mutually exclusive with a video's media link.
+    #[serde(default)]
+    pub hyperlink: Option<Hyperlink>,
     pub kind: ObjectKind,
 }
 
@@ -61,6 +67,27 @@ pub enum ObjectKind {
     Group {
         transform: Transform,
         children: Vec<Object>,
+    },
+    /// Native table in a `p:graphicFrame`; the frame transform is position and extent only.
+    Table {
+        transform: Transform,
+        table: crate::table::Table,
+    },
+    /// OLE object in a `p:graphicFrame`. `relationship` names the embedded OOXML package
+    /// and `preview_relationship` the PNG shown in its place. The frame transform is
+    /// position and extent only.
+    Ole {
+        transform: Transform,
+        prog_id: String,
+        relationship: String,
+        preview_relationship: String,
+        #[serde(default)]
+        show_as_icon: bool,
+    },
+    /// Native chart in a `p:graphicFrame`; `relationship` is the ID `Deck::add_chart` returned.
+    Chart {
+        transform: Transform,
+        relationship: String,
     },
 }
 
@@ -198,7 +225,48 @@ pub enum Color {
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Fill {
     None,
-    Solid { color: Color },
+    Solid {
+        color: Color,
+    },
+    /// Exactly one of `angle` (linear, 60000ths of a degree) or `path` (circle, rect or shape).
+    Gradient {
+        stops: Vec<GradientStop>,
+        #[serde(default)]
+        angle: Option<i32>,
+        #[serde(default)]
+        path: Option<String>,
+        rotate_with_shape: bool,
+    },
+    /// `preset` is ST_PresetPatternVal, such as pct50 or dkDnDiag.
+    Pattern {
+        preset: String,
+        foreground: Color,
+        background: Color,
+    },
+    /// `relationship` is an image relationship ID on the slide.
+    Picture {
+        relationship: String,
+    },
+}
+/// `position` is in 1000ths of a percent: 0..=100000.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GradientStop {
+    pub position: u32,
+    pub color: Color,
+}
+/// Slide background: a fill (`p:bgPr`) or a theme background style reference (`p:bgRef`).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Background {
+    Fill {
+        fill: Fill,
+    },
+    /// `index` is 1..=3 (fill styles) or 1001..=1003 (background fill styles).
+    Reference {
+        index: u32,
+        color: Color,
+    },
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -328,6 +396,52 @@ pub struct ParagraphProperties {
     pub space_before: Option<i32>,
     #[serde(default)]
     pub space_after: Option<i32>,
+    /// Outline level, 0..=8, emitted as `lvl`.
+    #[serde(default)]
+    pub level: Option<u8>,
+    /// Left margin, emitted as `marL`.
+    #[serde(default)]
+    pub margin_left: Option<Emu>,
+    /// First-line indent, emitted as `indent`; may be negative for hanging indents.
+    #[serde(default)]
+    pub indent: Option<Emu>,
+    #[serde(default)]
+    pub bullet: Option<Bullet>,
+}
+/// Paragraph bullet. `None` emits `a:buNone`, which suppresses inherited bullets.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Bullet {
+    None,
+    Char {
+        /// The bullet character, emitted as `a:buChar`.
+        char: String,
+        #[serde(default)]
+        font: Option<String>,
+        #[serde(default)]
+        color: Option<Color>,
+        /// Bullet size as a percentage of text size, 25..=400.
+        #[serde(default)]
+        size_percent: Option<u32>,
+    },
+    AutoNumber {
+        /// ST_TextAutonumberScheme, such as arabicPeriod or romanLcParenR.
+        scheme: String,
+        /// First number, 1..=32767.
+        #[serde(default)]
+        start_at: Option<u32>,
+    },
+}
+/// Hyperlink target. URL links carry no action; jump-to-slide uses `ppaction://hlinksldjump`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Hyperlink {
+    /// Relationship ID created for the target, such as an external URL or a slide.
+    pub relationship: String,
+    #[serde(default)]
+    pub action: Option<String>,
+    #[serde(default)]
+    pub tooltip: Option<String>,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -337,6 +451,9 @@ pub struct TextRun {
     pub style: Option<RunStyle>,
     #[serde(default)]
     pub field: Option<Field>,
+    /// Emitted as `a:hlinkClick` inside `a:rPr`, after `latin`.
+    #[serde(default)]
+    pub hyperlink: Option<Hyperlink>,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -403,7 +520,10 @@ impl Slide {
             ObjectKind::Shape { properties, .. }
             | ObjectKind::Picture { properties, .. }
             | ObjectKind::Connector { properties, .. } => properties.transform.as_mut(),
-            ObjectKind::Group { transform, .. } => Some(transform),
+            ObjectKind::Group { transform, .. }
+            | ObjectKind::Table { transform, .. }
+            | ObjectKind::Ole { transform, .. }
+            | ObjectKind::Chart { transform, .. } => Some(transform),
         }
         .ok_or_else(|| {
             authored_error(

@@ -15,6 +15,107 @@ const PATH_FILL_MODES: &[&str] = &[
     "darken",
     "darkenLess",
 ];
+/// ECMA-376 ST_PresetPatternVal names.
+const PATTERN_PRESETS: &[&str] = &[
+    "cross",
+    "dashDnDiag",
+    "dashHorz",
+    "dashUpDiag",
+    "dashVert",
+    "diagBrick",
+    "diagCross",
+    "divot",
+    "dkDnDiag",
+    "dkHorz",
+    "dkUpDiag",
+    "dkVert",
+    "dnDiag",
+    "dotDmnd",
+    "dotGrid",
+    "horz",
+    "horzBrick",
+    "lgCheck",
+    "lgConfetti",
+    "lgGrid",
+    "ltDnDiag",
+    "ltHorz",
+    "ltUpDiag",
+    "ltVert",
+    "narHorz",
+    "narVert",
+    "openDmnd",
+    "pct10",
+    "pct20",
+    "pct25",
+    "pct30",
+    "pct40",
+    "pct5",
+    "pct50",
+    "pct60",
+    "pct70",
+    "pct75",
+    "pct80",
+    "pct90",
+    "plaid",
+    "shingle",
+    "smCheck",
+    "smConfetti",
+    "smGrid",
+    "solidDmnd",
+    "sphere",
+    "trellis",
+    "upDiag",
+    "vert",
+    "wave",
+    "weave",
+    "wdDnDiag",
+    "wdUpDiag",
+    "zigZag",
+];
+/// ST_TextAutonumberScheme values, in schema order.
+const AUTONUMBER_SCHEMES: &[&str] = &[
+    "alphaLcParenBoth",
+    "alphaLcParenR",
+    "alphaLcPeriod",
+    "alphaUcParenBoth",
+    "alphaUcParenR",
+    "alphaUcPeriod",
+    "arabic1Minus",
+    "arabic2Minus",
+    "arabicDbPeriod",
+    "arabicDbPlain",
+    "arabicParenBoth",
+    "arabicParenR",
+    "arabicPeriod",
+    "arabicPlain",
+    "circleNumDbPlain",
+    "circleNumWdBlackPlain",
+    "circleNumWdWhitePlain",
+    "ea1ChsPeriod",
+    "ea1ChsPlain",
+    "ea1ChtPeriod",
+    "ea1ChtPlain",
+    "ea1JpnChsDbPeriod",
+    "ea1JpnKorPeriod",
+    "ea1JpnKorPlain",
+    "hebrew2Minus",
+    "hindiAlpha1Period",
+    "hindiAlphaPeriod",
+    "hindiNumParenR",
+    "hindiNumPeriod",
+    "romanLcParenBoth",
+    "romanLcParenR",
+    "romanLcPeriod",
+    "romanUcParenBoth",
+    "romanUcParenR",
+    "romanUcPeriod",
+    "thaiAlphaParenBoth",
+    "thaiAlphaParenR",
+    "thaiAlphaPeriod",
+    "thaiNumParenBoth",
+    "thaiNumParenR",
+    "thaiNumPeriod",
+];
 /// ECMA-376 ST_ShapeType preset names, sorted for binary_search.
 #[rustfmt::skip]
 const PRESET_GEOMETRIES: &[&str] = &[
@@ -76,20 +177,20 @@ fn escape(value: &str) -> String {
         .replace('"', "&quot;")
         .replace('\'', "&apos;")
 }
-fn attr(name: &str, value: impl std::fmt::Display) -> String {
+pub(crate) fn attr(name: &str, value: impl std::fmt::Display) -> String {
     format!(" {name}=\"{}\"", escape(&value.to_string()))
 }
-fn opt<T: std::fmt::Display>(name: &str, value: Option<T>) -> String {
+pub(crate) fn opt<T: std::fmt::Display>(name: &str, value: Option<T>) -> String {
     value.map(|v| attr(name, v)).unwrap_or_default()
 }
-fn element(name: &str, attrs: String, children: String) -> String {
+pub(crate) fn element(name: &str, attrs: String, children: String) -> String {
     if children.is_empty() {
         format!("<{name}{attrs}/>")
     } else {
         format!("<{name}{attrs}>{children}</{name}>")
     }
 }
-fn empty(name: &str) -> String {
+pub(crate) fn empty(name: &str) -> String {
     element(name, String::new(), String::new())
 }
 fn color(value: &Color) -> String {
@@ -105,11 +206,75 @@ fn color(value: &Color) -> String {
             .unwrap_or_default(),
     )
 }
-fn fill(value: &Fill) -> String {
+pub(crate) fn fill(value: &Fill) -> String {
     match value {
         Fill::None => empty("a:noFill"),
         Fill::Solid { color: c } => element("a:solidFill", String::new(), color(c)),
+        Fill::Gradient {
+            stops,
+            angle,
+            path,
+            rotate_with_shape,
+        } => {
+            let stops = stops
+                .iter()
+                .map(|s| element("a:gs", attr("pos", s.position), color(&s.color)))
+                .collect::<String>();
+            // Validation guarantees exactly one of angle or path.
+            let direction = match (angle, path) {
+                (Some(angle), _) => element(
+                    "a:lin",
+                    attr("ang", angle) + &attr("scaled", 0),
+                    String::new(),
+                ),
+                (None, Some(path)) => element(
+                    "a:path",
+                    attr("path", path),
+                    element(
+                        "a:fillToRect",
+                        attr("l", 50000)
+                            + &attr("t", 50000)
+                            + &attr("r", 50000)
+                            + &attr("b", 50000),
+                        String::new(),
+                    ),
+                ),
+                (None, None) => String::new(),
+            };
+            element(
+                "a:gradFill",
+                attr("rotWithShape", u8::from(*rotate_with_shape)),
+                element("a:gsLst", String::new(), stops) + &direction,
+            )
+        }
+        Fill::Pattern {
+            preset,
+            foreground,
+            background,
+        } => element(
+            "a:pattFill",
+            attr("prst", preset),
+            element("a:fgClr", String::new(), color(foreground))
+                + &element("a:bgClr", String::new(), color(background)),
+        ),
+        Fill::Picture { relationship } => element(
+            "a:blipFill",
+            String::new(),
+            element("a:blip", attr("r:embed", relationship), String::new())
+                + &element("a:stretch", String::new(), empty("a:fillRect")),
+        ),
     }
+}
+fn background(value: &Background) -> String {
+    let inner = match value {
+        Background::Fill { fill: f } => {
+            element("p:bgPr", String::new(), fill(f) + &empty("a:effectLst"))
+        }
+        Background::Reference { index, color: c } => {
+            element("p:bgRef", attr("idx", index), color(c))
+        }
+    };
+    element("p:bg", String::new(), inner)
 }
 fn transform(t: &Transform) -> String {
     let attrs = opt("rot", t.rotation)
@@ -236,23 +401,7 @@ fn properties(p: &Properties) -> String {
         content += &fill(f);
     }
     if let Some(l) = &p.line {
-        // Schema order inside a:ln: fill, prstDash, headEnd, tailEnd.
-        let mut children = l.fill.as_ref().map(fill).unwrap_or_default();
-        if let Some(dash) = &l.dash {
-            children += &element("a:prstDash", attr("val", dash), String::new());
-        }
-        for (tag, end) in [("a:headEnd", &l.head_end), ("a:tailEnd", &l.tail_end)] {
-            if let Some(end) = end {
-                children += &element(
-                    tag,
-                    attr("type", &end.kind)
-                        + &opt("w", end.width.as_ref())
-                        + &opt("len", end.length.as_ref()),
-                    String::new(),
-                );
-            }
-        }
-        content += &element("a:ln", opt("w", l.width.map(|v| v.0)), children);
+        content += &line_with_tag("a:ln", l);
     }
     if let Some(effects) = &p.effects {
         let effects = effects
@@ -272,6 +421,26 @@ fn properties(p: &Properties) -> String {
         content += &element("a:effectLst", String::new(), effects);
     }
     element("p:spPr", String::new(), content)
+}
+/// a:ln and the table cell borders (lnL, lnR, lnT, lnB) share one content model.
+pub(crate) fn line_with_tag(tag: &str, l: &Line) -> String {
+    // Schema order inside a:ln: fill, prstDash, headEnd, tailEnd.
+    let mut children = l.fill.as_ref().map(fill).unwrap_or_default();
+    if let Some(dash) = &l.dash {
+        children += &element("a:prstDash", attr("val", dash), String::new());
+    }
+    for (end_tag, end) in [("a:headEnd", &l.head_end), ("a:tailEnd", &l.tail_end)] {
+        if let Some(end) = end {
+            children += &element(
+                end_tag,
+                attr("type", &end.kind)
+                    + &opt("w", end.width.as_ref())
+                    + &opt("len", end.length.as_ref()),
+                String::new(),
+            );
+        }
+    }
+    element(tag, opt("w", l.width.map(|v| v.0)), children)
 }
 fn style(value: &Option<StyleReferences>) -> String {
     value
@@ -294,6 +463,10 @@ fn style(value: &Option<StyleReferences>) -> String {
         .unwrap_or_default()
 }
 fn text(t: &TextBody) -> String {
+    text_with("p:txBody", t)
+}
+/// Shared by slide text (`p:txBody`) and table cells (`a:txBody`): same content, different tag.
+pub(crate) fn text_with(tag: &str, t: &TextBody) -> String {
     let b = &t.body;
     let attrs = opt("wrap", b.wrap.as_ref())
         + &opt("lIns", b.left.map(|v| v.0))
@@ -327,12 +500,20 @@ fn text(t: &TextBody) -> String {
                     );
                 }
             }
-            paragraph += &element("a:pPr", opt("algn", pp.alignment.as_ref()), spacing);
+            if let Some(b) = &pp.bullet {
+                spacing += &bullet(b);
+            }
+            let attrs = opt("algn", pp.alignment.as_ref())
+                + &opt("lvl", pp.level)
+                + &opt("marL", pp.margin_left.map(|v| v.0))
+                + &opt("indent", pp.indent.map(|v| v.0));
+            paragraph += &element("a:pPr", attrs, spacing);
         }
         for r in &p.runs {
             let mut run = String::new();
-            if let Some(s) = &r.style {
-                run += &run_properties("a:rPr", s);
+            if r.style.is_some() || r.hyperlink.is_some() {
+                let style = r.style.clone().unwrap_or_default();
+                run += &run_properties("a:rPr", &style, r.hyperlink.as_ref());
             }
             // xml:space makes authored leading/trailing and repeated whitespace explicit.
             run += &element("a:t", attr("xml:space", "preserve"), escape(&r.text));
@@ -347,14 +528,54 @@ fn text(t: &TextBody) -> String {
             };
         }
         if let Some(end) = &p.end_style {
-            paragraph += &run_properties("a:endParaRPr", end);
+            paragraph += &run_properties("a:endParaRPr", end, None);
         }
         content += &element("a:p", String::new(), paragraph);
     }
-    element("p:txBody", String::new(), content)
+    element(tag, String::new(), content)
+}
+/// Paragraph bullet children, in schema order: buClr, buSzPct, buFont, then the bullet.
+fn bullet(b: &Bullet) -> String {
+    match b {
+        Bullet::None => empty("a:buNone"),
+        Bullet::Char {
+            char: glyph,
+            font,
+            color: bullet_color,
+            size_percent,
+        } => {
+            let mut children = bullet_color
+                .as_ref()
+                .map(|c| element("a:buClr", String::new(), color(c)))
+                .unwrap_or_default();
+            if let Some(size) = size_percent {
+                // ST_TextBulletSizePercent is in thousandths of a percent.
+                children += &element("a:buSzPct", attr("val", size * 1000), String::new());
+            }
+            if let Some(font) = font {
+                children += &element("a:buFont", attr("typeface", font), String::new());
+            }
+            children + &element("a:buChar", attr("char", glyph), String::new())
+        }
+        Bullet::AutoNumber { scheme, start_at } => element(
+            "a:buAutoNum",
+            attr("type", scheme) + &opt("startAt", *start_at),
+            String::new(),
+        ),
+    }
+}
+fn hyperlink(tag: &str, h: &Hyperlink) -> String {
+    element(
+        tag,
+        attr("r:id", &h.relationship)
+            + &opt("action", h.action.as_ref())
+            + &opt("tooltip", h.tooltip.as_ref()),
+        String::new(),
+    )
 }
 /// Shared by a:rPr and a:endParaRPr: identical attributes and children, different tag.
-fn run_properties(tag: &str, s: &RunStyle) -> String {
+/// Only a:rPr carries a hyperlink; hlinkClick follows latin in schema order.
+fn run_properties(tag: &str, s: &RunStyle, link: Option<&Hyperlink>) -> String {
     let attrs = opt("sz", s.size)
         + &opt("b", s.bold.map(u8::from))
         + &opt("i", s.italic.map(u8::from))
@@ -367,6 +588,9 @@ fn run_properties(tag: &str, s: &RunStyle) -> String {
     if let Some(font) = &s.font {
         children += &element("a:latin", attr("typeface", font), String::new());
     }
+    if let Some(link) = link {
+        children += &hyperlink("a:hlinkClick", link);
+    }
     element(tag, attrs, children)
 }
 fn common(o: &Object) -> String {
@@ -377,6 +601,13 @@ fn common(o: &Object) -> String {
         attr("xmlns:dw", "urn:deckwright:source:v1") + &attr("key", &o.key),
         String::new(),
     );
+    // Object hyperlinks come first in cNvPr. A video's media click action follows them;
+    // validation rejects a slide that has both.
+    let hyperlink_child = o
+        .hyperlink
+        .as_ref()
+        .map(|h| hyperlink("a:hlinkClick", h))
+        .unwrap_or_default();
     // A video picture's click action is the media playback action (before extLst).
     let link = match &o.kind {
         ObjectKind::Picture { media: Some(_), .. } => element(
@@ -389,11 +620,13 @@ fn common(o: &Object) -> String {
     element(
         "p:cNvPr",
         attrs,
-        link + &element(
-            "a:extLst",
-            String::new(),
-            element("a:ext", attr("uri", "urn:deckwright:source:v1"), key),
-        ),
+        hyperlink_child
+            + &link
+            + &element(
+                "a:extLst",
+                String::new(),
+                element("a:ext", attr("uri", "urn:deckwright:source:v1"), key),
+            ),
     )
 }
 fn picture_nv_pr(media: &Option<MediaLink>) -> String {
@@ -528,6 +761,104 @@ fn object(o: &Object) -> String {
             content += &properties(p);
             content += &style(s);
         }
+        ObjectKind::Table {
+            transform: t,
+            table,
+        } => {
+            tag = "p:graphicFrame";
+            content = element(
+                "p:nvGraphicFramePr",
+                String::new(),
+                nv + &element(
+                    "p:cNvGraphicFramePr",
+                    String::new(),
+                    element("a:graphicFrameLocks", attr("noGrp", 1), String::new()),
+                ) + &empty("p:nvPr"),
+            );
+            content += &crate::table::frame_content(t, table);
+        }
+        ObjectKind::Ole {
+            transform: t,
+            prog_id,
+            relationship,
+            preview_relationship,
+            show_as_icon,
+        } => {
+            // Mirrors python-pptx's `new_ole_object_graphicFrame`. The preview is stretched
+            // over the frame, so imgW and imgH carry the frame extent.
+            tag = "p:graphicFrame";
+            let uri = "http://schemas.openxmlformats.org/presentationml/2006/ole";
+            content = element(
+                "p:nvGraphicFramePr",
+                String::new(),
+                nv + &element(
+                    "p:cNvGraphicFramePr",
+                    String::new(),
+                    element("a:graphicFrameLocks", attr("noGrp", 1), String::new()),
+                ) + &empty("p:nvPr"),
+            );
+            let off_ext = element("a:off", attr("x", t.x.0) + &attr("y", t.y.0), String::new())
+                + &element(
+                    "a:ext",
+                    attr("cx", t.width.0) + &attr("cy", t.height.0),
+                    String::new(),
+                );
+            let pic_nv = element(
+                "p:nvPicPr",
+                String::new(),
+                element("p:cNvPr", attr("id", 0) + &attr("name", ""), String::new())
+                    + &empty("p:cNvPicPr")
+                    + &empty("p:nvPr"),
+            );
+            let blip_fill = element(
+                "p:blipFill",
+                String::new(),
+                element(
+                    "a:blip",
+                    attr("r:embed", preview_relationship),
+                    String::new(),
+                ) + &element("a:stretch", String::new(), empty("a:fillRect")),
+            );
+            let sp_pr = element(
+                "p:spPr",
+                String::new(),
+                element("a:xfrm", String::new(), off_ext.clone())
+                    + &element("a:prstGeom", attr("prst", "rect"), empty("a:avLst")),
+            );
+            let pic = element("p:pic", String::new(), pic_nv + &blip_fill + &sp_pr);
+            let ole = element(
+                "p:oleObj",
+                attr("progId", prog_id)
+                    + &attr("r:id", relationship)
+                    + &if *show_as_icon {
+                        attr("showAsIcon", 1)
+                    } else {
+                        String::new()
+                    }
+                    + &attr("imgW", t.width.0)
+                    + &attr("imgH", t.height.0),
+                empty("p:embed") + &pic,
+            );
+            let xfrm = element("p:xfrm", String::new(), off_ext);
+            let data = element("a:graphicData", attr("uri", uri), ole);
+            content += &(xfrm + &element("a:graphic", String::new(), data));
+        }
+        ObjectKind::Chart {
+            transform: t,
+            relationship,
+        } => {
+            tag = "p:graphicFrame";
+            content = element(
+                "p:nvGraphicFramePr",
+                String::new(),
+                nv + &element(
+                    "p:cNvGraphicFramePr",
+                    String::new(),
+                    element("a:graphicFrameLocks", attr("noGrp", 1), String::new()),
+                ) + &empty("p:nvPr"),
+            );
+            content += &crate::chart::frame_content(t, relationship);
+        }
         ObjectKind::Group {
             transform: t,
             children,
@@ -562,7 +893,12 @@ pub fn compile_slide(slide: &Slide) -> Result<Vec<u8>> {
     let content = element(
         "p:cSld",
         String::new(),
-        element("p:spTree", String::new(), tree),
+        slide
+            .background
+            .as_ref()
+            .map(background)
+            .unwrap_or_default()
+            + &element("p:spTree", String::new(), tree),
     ) + &element("p:clrMapOvr", String::new(), empty("a:masterClrMapping"));
     Ok(
         ("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>".to_string()
@@ -601,6 +937,15 @@ fn validate(slide: &Slide) -> Result<()> {
                     &o.key,
                     "Morph matching name must start with !!",
                 ));
+            }
+            if let Some(h) = &o.hyperlink {
+                check_hyperlink(h, &o.key)?;
+                if matches!(&o.kind, ObjectKind::Picture { media: Some(_), .. }) {
+                    return Err(authored_error(
+                        &o.key,
+                        "video picture media link cannot be combined with a hyperlink",
+                    ));
+                }
             }
             match &o.kind {
                 ObjectKind::Group {
@@ -682,11 +1027,60 @@ fn validate(slide: &Slide) -> Result<()> {
                         check_style(style, &o.key)?;
                     }
                 }
+                ObjectKind::Table { transform, table } => {
+                    crate::table::validate(transform, table, &o.key)?;
+                }
+                ObjectKind::Chart {
+                    transform,
+                    relationship,
+                } => {
+                    crate::chart::validate_frame(transform, relationship, &o.key)?;
+                }
+                ObjectKind::Ole {
+                    transform,
+                    prog_id,
+                    relationship,
+                    preview_relationship,
+                    ..
+                } => {
+                    check_transform(transform, &o.key)?;
+                    if transform.rotation.is_some()
+                        || transform.flip_h
+                        || transform.flip_v
+                        || transform.child.is_some()
+                    {
+                        return Err(authored_error(
+                            &o.key,
+                            "OLE frame supports only x, y, width and height",
+                        ));
+                    }
+                    if transform.width.0 == 0 || transform.height.0 == 0 {
+                        return Err(authored_error(&o.key, "OLE frame extent must be nonzero"));
+                    }
+                    if prog_id.is_empty() || prog_id.chars().any(char::is_control) {
+                        return Err(authored_error(&o.key, "OLE progId must be nonempty text"));
+                    }
+                    if relationship.is_empty() {
+                        return Err(authored_error(
+                            &o.key,
+                            "OLE object requires relationship ID",
+                        ));
+                    }
+                    if preview_relationship.is_empty() {
+                        return Err(authored_error(
+                            &o.key,
+                            "OLE preview requires relationship ID",
+                        ));
+                    }
+                }
             }
         }
         Ok(())
     }
     visit(&slide.objects, &mut keys, &mut ids, 0)?;
+    if let Some(background) = &slide.background {
+        check_background(background)?;
+    }
     fn endpoints(objects: &[Object], ids: &BTreeSet<u32>) -> Result<()> {
         for o in objects {
             if let ObjectKind::Connector { start, end, .. } = &o.kind {
@@ -763,7 +1157,7 @@ fn validate(slide: &Slide) -> Result<()> {
     }
     Ok(())
 }
-fn check_transform(t: &Transform, key: &str) -> Result<()> {
+pub(crate) fn check_transform(t: &Transform, key: &str) -> Result<()> {
     for value in [t.x.0, t.y.0] {
         range(
             value,
@@ -792,7 +1186,7 @@ fn check_transform(t: &Transform, key: &str) -> Result<()> {
     }
     Ok(())
 }
-fn check_properties(p: &Properties, key: &str) -> Result<()> {
+pub(crate) fn check_properties(p: &Properties, key: &str) -> Result<()> {
     if let Some(t) = &p.transform {
         check_transform(t, key)?;
         if t.child.is_some() {
@@ -816,10 +1210,17 @@ fn check_properties(p: &Properties, key: &str) -> Result<()> {
     if let Some(c) = &p.custom {
         check_custom(c, key)?;
     }
+    if let Some(fill) = &p.fill {
+        check_fill(fill, key, false)?;
+    }
     if let Some(width) = p.line.as_ref().and_then(|l| l.width) {
         range(width.0, 0, 20116800, key, "line width")?;
     }
     if let Some(line) = &p.line {
+        // a:ln allows noFill, solidFill, gradFill and pattFill, but not blipFill.
+        if let Some(fill) = &line.fill {
+            check_fill(fill, key, true)?;
+        }
         if let Some(dash) = &line.dash {
             member(
                 dash,
@@ -883,6 +1284,69 @@ fn check_properties(p: &Properties, key: &str) -> Result<()> {
     Ok(())
 }
 
+fn check_fill(fill: &Fill, key: &str, on_line: bool) -> Result<()> {
+    match fill {
+        Fill::None | Fill::Solid { .. } => Ok(()),
+        Fill::Gradient {
+            stops, angle, path, ..
+        } => {
+            if stops.len() < 2 {
+                return Err(authored_error(key, "gradient requires at least two stops"));
+            }
+            for stop in stops {
+                range(
+                    stop.position.into(),
+                    0,
+                    100000,
+                    key,
+                    "gradient stop position",
+                )?;
+            }
+            if stops.windows(2).any(|w| w[0].position > w[1].position) {
+                return Err(authored_error(
+                    key,
+                    "gradient stop positions must be ascending",
+                ));
+            }
+            match (angle, path) {
+                (Some(angle), None) => range(i64::from(*angle), 0, 21599999, key, "gradient angle"),
+                (None, Some(path)) => {
+                    member(path, &["circle", "rect", "shape"], key, "gradient path")
+                }
+                _ => Err(authored_error(
+                    key,
+                    "gradient requires exactly one of angle or path",
+                )),
+            }
+        }
+        Fill::Pattern { preset, .. } => member(preset, PATTERN_PRESETS, key, "pattern preset"),
+        Fill::Picture { relationship } => {
+            if on_line {
+                return Err(authored_error(key, "picture fill is not allowed on a line"));
+            }
+            if relationship.is_empty() {
+                return Err(authored_error(key, "picture fill requires relationship ID"));
+            }
+            Ok(())
+        }
+    }
+}
+fn check_background(background: &Background) -> Result<()> {
+    match background {
+        Background::Fill { fill } => check_fill(fill, "background", false),
+        Background::Reference { index, .. } => {
+            if matches!(index, 1..=3 | 1001..=1003) {
+                Ok(())
+            } else {
+                Err(authored_error(
+                    "background",
+                    "bgRef idx must be 1..=3 or 1001..=1003",
+                ))
+            }
+        }
+    }
+}
+
 /// Paths use ST_PositiveCoordinate for their size and ST_Coordinate for points.
 fn check_custom(c: &CustomGeometry, key: &str) -> Result<()> {
     if c.paths.is_empty() {
@@ -942,7 +1406,7 @@ fn check_custom(c: &CustomGeometry, key: &str) -> Result<()> {
 // Attribute domains follow the official Open-XML-SDK DrawingML/PresentationML
 // schema validators. Integer model fields already constrain angles, percentages,
 // IDs and connection indices to their corresponding signed/unsigned 32-bit types.
-fn range(value: i64, min: i64, max: i64, key: &str, field: &str) -> Result<()> {
+pub(crate) fn range(value: i64, min: i64, max: i64, key: &str, field: &str) -> Result<()> {
     if !(min..=max).contains(&value) {
         return Err(authored_error(
             key,
@@ -951,7 +1415,7 @@ fn range(value: i64, min: i64, max: i64, key: &str, field: &str) -> Result<()> {
     }
     Ok(())
 }
-fn member(value: &str, allowed: &[&str], key: &str, field: &str) -> Result<()> {
+pub(crate) fn member(value: &str, allowed: &[&str], key: &str, field: &str) -> Result<()> {
     if !allowed.contains(&value) {
         return Err(authored_error(
             key,
@@ -1009,7 +1473,37 @@ fn check_run_style(style: &RunStyle, key: &str) -> Result<()> {
     }
     Ok(())
 }
-fn check_text(text: &TextBody, key: &str) -> Result<()> {
+fn check_hyperlink(link: &Hyperlink, key: &str) -> Result<()> {
+    if link.relationship.is_empty() {
+        return Err(authored_error(key, "hyperlink requires relationship ID"));
+    }
+    Ok(())
+}
+fn check_bullet(bullet: &Bullet, key: &str) -> Result<()> {
+    match bullet {
+        Bullet::None => {}
+        Bullet::Char {
+            char: glyph,
+            size_percent,
+            ..
+        } => {
+            if glyph.is_empty() {
+                return Err(authored_error(key, "bullet character must not be empty"));
+            }
+            if let Some(size) = size_percent {
+                range((*size).into(), 25, 400, key, "bullet size percent")?;
+            }
+        }
+        Bullet::AutoNumber { scheme, start_at } => {
+            member(scheme, AUTONUMBER_SCHEMES, key, "auto number scheme")?;
+            if let Some(start) = start_at {
+                range((*start).into(), 1, 32767, key, "bullet start number")?;
+            }
+        }
+    }
+    Ok(())
+}
+pub(crate) fn check_text(text: &TextBody, key: &str) -> Result<()> {
     if text.paragraphs.is_empty() {
         return Err(authored_error(
             key,
@@ -1042,6 +1536,19 @@ fn check_text(text: &TextBody, key: &str) -> Result<()> {
             for spacing in [p.space_before, p.space_after].into_iter().flatten() {
                 range(spacing.into(), 0, 158400, key, "paragraph spacing")?;
             }
+            if let Some(level) = p.level {
+                range(level.into(), 0, 8, key, "paragraph level")?;
+            }
+            // ST_TextMargin and ST_TextIndent schema domains.
+            if let Some(margin) = p.margin_left {
+                range(margin.0, 0, 51206400, key, "paragraph left margin")?;
+            }
+            if let Some(indent) = p.indent {
+                range(indent.0, -51206400, 51206400, key, "paragraph indent")?;
+            }
+            if let Some(bullet) = &p.bullet {
+                check_bullet(bullet, key)?;
+            }
         }
         if let Some(end) = &paragraph.end_style {
             check_run_style(end, key)?;
@@ -1049,6 +1556,9 @@ fn check_text(text: &TextBody, key: &str) -> Result<()> {
         for run in &paragraph.runs {
             if let Some(style) = &run.style {
                 check_run_style(style, key)?;
+            }
+            if let Some(link) = &run.hyperlink {
+                check_hyperlink(link, key)?;
             }
             if let Some(field) = &run.field {
                 let bytes = field.id.as_bytes();

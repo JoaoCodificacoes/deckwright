@@ -7,6 +7,7 @@ fn slide() -> Slide {
             name: "Box".into(),
             morph_name: None,
             description: None,
+            hyperlink: None,
             kind: ObjectKind::Shape {
                 textbox: false,
                 lock_no_group: false,
@@ -29,6 +30,7 @@ fn slide() -> Slide {
                 text: None,
             },
         }],
+        ..Default::default()
     }
 }
 fn effect(kind: EffectKind) -> Effect {

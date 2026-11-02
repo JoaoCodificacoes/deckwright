@@ -51,6 +51,7 @@ fn rect(id: u32) -> Object {
         name: format!("Box {id}"),
         morph_name: None,
         description: None,
+        hyperlink: None,
         kind: ObjectKind::Shape {
             textbox: false,
             lock_no_group: false,
@@ -80,6 +81,7 @@ fn rect(id: u32) -> Object {
 fn build_deck(path: &Path) {
     let shapes = Slide {
         objects: (2..6).map(rect).collect(),
+        ..Default::default()
     };
     let fade = Timeline {
         stages: vec![Stage {

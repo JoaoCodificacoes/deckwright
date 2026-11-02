@@ -55,6 +55,7 @@ fn model(x: i64, y: i64) -> Slide {
             name: "Box".into(),
             morph_name: None,
             description: None,
+            hyperlink: None,
             kind: ObjectKind::Shape {
                 textbox: false,
                 lock_no_group: false,
@@ -77,6 +78,7 @@ fn model(x: i64, y: i64) -> Slide {
                 text: None,
             },
         }],
+        ..Default::default()
     }
 }
 

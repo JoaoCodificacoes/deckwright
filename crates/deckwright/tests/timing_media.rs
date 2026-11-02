@@ -7,6 +7,7 @@ fn shape(id: u32) -> Object {
         name: format!("Shape {id}"),
         morph_name: None,
         description: None,
+        hyperlink: None,
         kind: ObjectKind::Shape {
             textbox: false,
             lock_no_group: false,
@@ -34,6 +35,7 @@ fn shape(id: u32) -> Object {
 fn slide() -> Slide {
     Slide {
         objects: vec![shape(2), shape(3)],
+        ..Default::default()
     }
 }
 

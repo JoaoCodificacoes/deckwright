@@ -22,6 +22,7 @@ fn object(id: u32, name: &str) -> Object {
         name: name.into(),
         morph_name: None,
         description: None,
+        hyperlink: None,
         kind: ObjectKind::Shape {
             textbox: false,
             lock_no_group: false,
@@ -47,7 +48,10 @@ fn object(id: u32, name: &str) -> Object {
 }
 
 fn slide(objects: Vec<Object>) -> Slide {
-    Slide { objects }
+    Slide {
+        objects,
+        ..Default::default()
+    }
 }
 
 fn fade_on_click() -> Timeline {
