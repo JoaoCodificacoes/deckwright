@@ -15,7 +15,7 @@ name = "dw-mcp"
 path = "src/main.rs"
 
 [dependencies]
-deckwright = { version = "0.1.0", path = "../deckwright" }
+deckwright = { version = "0.1.1", path = "../deckwright" }
 serde_json.workspace = true
 
 [[bench]]

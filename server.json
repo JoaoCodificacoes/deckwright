@@ -1,18 +1,18 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.joaocodificacoes/deckwright",
+  "name": "io.github.JoaoCodificacoes/deckwright",
   "title": "Deckwright",
   "description": "Inspect PowerPoint slide state, timelines, Morph links, and package findings.",
   "repository": {
     "url": "https://github.com/JoaoCodificacoes/deckwright",
     "source": "github"
   },
-  "version": "0.1.0",
+  "version": "0.1.1",
   "packages": [
     {
       "registryType": "cargo",
       "identifier": "dw-mcp",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "transport": {
         "type": "stdio"
       }

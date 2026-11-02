@@ -1,12 +1,12 @@
 # MCP Registry publication
 
 `server.json` describes the `dw-mcp` stdio server for the official MCP
-Registry under `io.github.joaocodificacoes/deckwright`. The server exposes
+Registry under `io.github.JoaoCodificacoes/deckwright`. The server exposes
 seven inspection tools; deck authoring remains a Rust API and skill workflow.
 
 The registry entry uses the Cargo package `dw-mcp` at the exact version in
 `server.json`. The crate must be published to crates.io first, and its rendered
-README must visibly contain `mcp-name: io.github.joaocodificacoes/deckwright`
+README must visibly contain `mcp-name: io.github.JoaoCodificacoes/deckwright`
 for ownership verification. The official Registry supports Cargo packages,
 but `cargo install dw-mcp` requires a Rust toolchain on the user's machine.
 

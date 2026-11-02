@@ -13,7 +13,7 @@ include = ["/src/**", "/README.md", "/LICENSE"]
 name = "dw"
 path = "src/main.rs"
 [dependencies]
-deckwright = { version = "0.1.0", path = "../deckwright" }
+deckwright = { version = "0.1.1", path = "../deckwright" }
 serde_json.workspace = true
 [dev-dependencies]
 zip = { version = "2.4", default-features = false, features = ["deflate"] }

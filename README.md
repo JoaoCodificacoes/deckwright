@@ -2,15 +2,22 @@
 
 Deckwright is a Rust toolkit for building editable PowerPoint slides and inspecting the animation data inside `.pptx` files. It can create a deck from a blank template, replace slides in an existing package, run structural checks, and answer questions such as “what is visible on slide 2 after the first click?” through a CLI or an MCP server.
 
-The public [Morph demo](examples/morph_demo/README.md) builds three editable slides with an explicit Morph match, a click reveal, and a motion path. The [presentation authoring skill](skills/deckwright-presentations/SKILL.md) gives agents a workflow for using these APIs.
+The public [Morph demo](examples/morph_demo/README.md) builds three editable slides with an explicit Morph match, a click reveal, and a motion path. Watch the [26-second PowerPoint demo](https://github.com/JoaoCodificacoes/deckwright/releases/download/v0.1.0/public-demo.mp4) to see the transition, a selected native shape, and a real timing query. The [presentation authoring skill](skills/deckwright-presentations/SKILL.md) gives agents a workflow for using these APIs.
 
 ## Get started
 
-Install a [Rust toolchain](https://www.rust-lang.org/tools/install), then run these commands from a Deckwright checkout:
+Install a [Rust toolchain](https://www.rust-lang.org/tools/install), then install the CLI and MCP server:
 
 ```sh
-cargo install --locked --path crates/dw-cli
-cargo install --locked --path crates/dw-mcp
+cargo install dw-cli --version 0.1.1 --locked
+cargo install dw-mcp --version 0.1.1 --locked
+```
+
+[Release archives](https://github.com/JoaoCodificacoes/deckwright/releases) provide prebuilt `dw` and `dw-mcp` binaries for Windows, Linux, and macOS.
+
+To build and inspect the example deck, run these commands from a Deckwright checkout:
+
+```sh
 cargo run --locked -p deckwright --example morph_demo -- demo.pptx
 dw check demo.pptx --json
 dw query morph demo.pptx --from 1 --to 2 --json
