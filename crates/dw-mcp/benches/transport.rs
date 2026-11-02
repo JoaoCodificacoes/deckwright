@@ -80,6 +80,7 @@ fn rect(id: u32) -> Object {
 fn build_deck(path: &Path) {
     let shapes = Slide {
         objects: (2..6).map(rect).collect(),
+        ..Default::default()
     };
     let fade = Timeline {
         stages: vec![Stage {

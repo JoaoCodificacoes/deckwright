@@ -77,6 +77,7 @@ fn model(x: i64, y: i64) -> Slide {
                 text: None,
             },
         }],
+        ..Default::default()
     }
 }
 

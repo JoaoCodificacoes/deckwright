@@ -15,6 +15,63 @@ const PATH_FILL_MODES: &[&str] = &[
     "darken",
     "darkenLess",
 ];
+/// ECMA-376 ST_PresetPatternVal names.
+const PATTERN_PRESETS: &[&str] = &[
+    "cross",
+    "dashDnDiag",
+    "dashHorz",
+    "dashUpDiag",
+    "dashVert",
+    "diagBrick",
+    "diagCross",
+    "divot",
+    "dkDnDiag",
+    "dkHorz",
+    "dkUpDiag",
+    "dkVert",
+    "dnDiag",
+    "dotDmnd",
+    "dotGrid",
+    "horz",
+    "horzBrick",
+    "lgCheck",
+    "lgConfetti",
+    "lgGrid",
+    "ltDnDiag",
+    "ltHorz",
+    "ltUpDiag",
+    "ltVert",
+    "narHorz",
+    "narVert",
+    "openDmnd",
+    "pct10",
+    "pct20",
+    "pct25",
+    "pct30",
+    "pct40",
+    "pct5",
+    "pct50",
+    "pct60",
+    "pct70",
+    "pct75",
+    "pct80",
+    "pct90",
+    "plaid",
+    "shingle",
+    "smCheck",
+    "smConfetti",
+    "smGrid",
+    "solidDmnd",
+    "sphere",
+    "trellis",
+    "upDiag",
+    "vert",
+    "wave",
+    "weave",
+    "wdDnDiag",
+    "wdUpDiag",
+    "zigZag",
+];
 /// ECMA-376 ST_ShapeType preset names, sorted for binary_search.
 #[rustfmt::skip]
 const PRESET_GEOMETRIES: &[&str] = &[
@@ -109,7 +166,71 @@ pub(crate) fn fill(value: &Fill) -> String {
     match value {
         Fill::None => empty("a:noFill"),
         Fill::Solid { color: c } => element("a:solidFill", String::new(), color(c)),
+        Fill::Gradient {
+            stops,
+            angle,
+            path,
+            rotate_with_shape,
+        } => {
+            let stops = stops
+                .iter()
+                .map(|s| element("a:gs", attr("pos", s.position), color(&s.color)))
+                .collect::<String>();
+            // Validation guarantees exactly one of angle or path.
+            let direction = match (angle, path) {
+                (Some(angle), _) => element(
+                    "a:lin",
+                    attr("ang", angle) + &attr("scaled", 0),
+                    String::new(),
+                ),
+                (None, Some(path)) => element(
+                    "a:path",
+                    attr("path", path),
+                    element(
+                        "a:fillToRect",
+                        attr("l", 50000)
+                            + &attr("t", 50000)
+                            + &attr("r", 50000)
+                            + &attr("b", 50000),
+                        String::new(),
+                    ),
+                ),
+                (None, None) => String::new(),
+            };
+            element(
+                "a:gradFill",
+                attr("rotWithShape", u8::from(*rotate_with_shape)),
+                element("a:gsLst", String::new(), stops) + &direction,
+            )
+        }
+        Fill::Pattern {
+            preset,
+            foreground,
+            background,
+        } => element(
+            "a:pattFill",
+            attr("prst", preset),
+            element("a:fgClr", String::new(), color(foreground))
+                + &element("a:bgClr", String::new(), color(background)),
+        ),
+        Fill::Picture { relationship } => element(
+            "a:blipFill",
+            String::new(),
+            element("a:blip", attr("r:embed", relationship), String::new())
+                + &element("a:stretch", String::new(), empty("a:fillRect")),
+        ),
     }
+}
+fn background(value: &Background) -> String {
+    let inner = match value {
+        Background::Fill { fill: f } => {
+            element("p:bgPr", String::new(), fill(f) + &empty("a:effectLst"))
+        }
+        Background::Reference { index, color: c } => {
+            element("p:bgRef", attr("idx", index), color(c))
+        }
+    };
+    element("p:bg", String::new(), inner)
 }
 fn transform(t: &Transform) -> String {
     let attrs = opt("rot", t.rotation)
@@ -586,7 +707,12 @@ pub fn compile_slide(slide: &Slide) -> Result<Vec<u8>> {
     let content = element(
         "p:cSld",
         String::new(),
-        element("p:spTree", String::new(), tree),
+        slide
+            .background
+            .as_ref()
+            .map(background)
+            .unwrap_or_default()
+            + &element("p:spTree", String::new(), tree),
     ) + &element("p:clrMapOvr", String::new(), empty("a:masterClrMapping"));
     Ok(
         ("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>".to_string()
@@ -714,6 +840,9 @@ fn validate(slide: &Slide) -> Result<()> {
         Ok(())
     }
     visit(&slide.objects, &mut keys, &mut ids, 0)?;
+    if let Some(background) = &slide.background {
+        check_background(background)?;
+    }
     fn endpoints(objects: &[Object], ids: &BTreeSet<u32>) -> Result<()> {
         for o in objects {
             if let ObjectKind::Connector { start, end, .. } = &o.kind {
@@ -843,10 +972,17 @@ pub(crate) fn check_properties(p: &Properties, key: &str) -> Result<()> {
     if let Some(c) = &p.custom {
         check_custom(c, key)?;
     }
+    if let Some(fill) = &p.fill {
+        check_fill(fill, key, false)?;
+    }
     if let Some(width) = p.line.as_ref().and_then(|l| l.width) {
         range(width.0, 0, 20116800, key, "line width")?;
     }
     if let Some(line) = &p.line {
+        // a:ln allows noFill, solidFill, gradFill and pattFill, but not blipFill.
+        if let Some(fill) = &line.fill {
+            check_fill(fill, key, true)?;
+        }
         if let Some(dash) = &line.dash {
             member(
                 dash,
@@ -908,6 +1044,69 @@ pub(crate) fn check_properties(p: &Properties, key: &str) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn check_fill(fill: &Fill, key: &str, on_line: bool) -> Result<()> {
+    match fill {
+        Fill::None | Fill::Solid { .. } => Ok(()),
+        Fill::Gradient {
+            stops, angle, path, ..
+        } => {
+            if stops.len() < 2 {
+                return Err(authored_error(key, "gradient requires at least two stops"));
+            }
+            for stop in stops {
+                range(
+                    stop.position.into(),
+                    0,
+                    100000,
+                    key,
+                    "gradient stop position",
+                )?;
+            }
+            if stops.windows(2).any(|w| w[0].position > w[1].position) {
+                return Err(authored_error(
+                    key,
+                    "gradient stop positions must be ascending",
+                ));
+            }
+            match (angle, path) {
+                (Some(angle), None) => range(i64::from(*angle), 0, 21599999, key, "gradient angle"),
+                (None, Some(path)) => {
+                    member(path, &["circle", "rect", "shape"], key, "gradient path")
+                }
+                _ => Err(authored_error(
+                    key,
+                    "gradient requires exactly one of angle or path",
+                )),
+            }
+        }
+        Fill::Pattern { preset, .. } => member(preset, PATTERN_PRESETS, key, "pattern preset"),
+        Fill::Picture { relationship } => {
+            if on_line {
+                return Err(authored_error(key, "picture fill is not allowed on a line"));
+            }
+            if relationship.is_empty() {
+                return Err(authored_error(key, "picture fill requires relationship ID"));
+            }
+            Ok(())
+        }
+    }
+}
+fn check_background(background: &Background) -> Result<()> {
+    match background {
+        Background::Fill { fill } => check_fill(fill, "background", false),
+        Background::Reference { index, .. } => {
+            if matches!(index, 1..=3 | 1001..=1003) {
+                Ok(())
+            } else {
+                Err(authored_error(
+                    "background",
+                    "bgRef idx must be 1..=3 or 1001..=1003",
+                ))
+            }
+        }
+    }
 }
 
 /// Paths use ST_PositiveCoordinate for their size and ST_Coordinate for points.

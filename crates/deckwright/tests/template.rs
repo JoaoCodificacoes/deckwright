@@ -89,6 +89,7 @@ fn morph_deck(package: &Package) -> Package {
                     [600_000, 2_400_000, 2_000_000, 2_000_000],
                     "2563EB",
                 )],
+                ..Default::default()
             },
             Timeline::default(),
             Transition::None,
@@ -113,6 +114,7 @@ fn morph_deck(package: &Package) -> Package {
                         "10B981",
                     ),
                 ],
+                ..Default::default()
             },
             Timeline {
                 stages: vec![Stage {
