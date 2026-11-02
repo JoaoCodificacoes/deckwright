@@ -1,68 +1,54 @@
-# deckwright
+# Deckwright
 
-A performance-focused Rust framework for authoring editable PowerPoint decks and inspecting animation state as data.
+Deckwright is a Rust toolkit for building editable PowerPoint slides and inspecting the animation data inside `.pptx` files. It can create a deck from a blank template, replace slides in an existing package, run structural checks, and answer questions such as “what is visible on slide 2 after the first click?” through a CLI or an MCP server.
 
-The first release will faithfully reconstruct the 25-slide thesis reference, including its original assets, Morph transitions, click builds, motion paths, emphasis effects and embedded video.
+The public [Morph demo](examples/morph_demo/README.md) builds three editable slides with an explicit Morph match, a click reveal, and a motion path. The [presentation authoring skill](skills/deckwright-presentations/SKILL.md) gives agents a workflow for using these APIs.
 
-## Plan
+## Get started
 
-See [the implementation plan](docs/superpowers/plans/2026-10-25-thesis-reconstruction-performance.md) for scope, acceptance criteria and proposed performance budgets.
-
-Initial targets on a fixed benchmark host: full build under 1 second, warm single-slide edit under 250 ms, warm state query under 5 ms, and core peak memory under 128 MiB. These are engineering targets, not measured results.
-
-## Status
-
-Implemented: bounded OPC import/export, deterministic roundtrips, JSON inspection,
-structural checks, and a typed static authoring API. The thesis example rebuilds
-the first three slides as editable native objects. Their PowerPoint static PNGs
-match the frozen reference exactly; this does not establish animation equivalence.
-
-The reference inspection benchmark records 205.32 ms p95 and 78.75 MiB peak RSS
-on the documented WSL host. See [the measurement PR](https://github.com/JoaoCodificacoes/deckwright/pull/14) for
-the exact revision, workloads and remaining qualification gates.
-
-## Install
+Install a [Rust toolchain](https://www.rust-lang.org/tools/install), then run these commands from a Deckwright checkout:
 
 ```sh
-cargo install --locked --path crates/dw-cli   # dw: inspect, roundtrip, check, query, serve
-cargo install --locked --path crates/dw-mcp   # dw-mcp: MCP stdio server for agents
+cargo install --locked --path crates/dw-cli
+cargo install --locked --path crates/dw-mcp
+cargo run --locked -p deckwright --example morph_demo -- demo.pptx
+dw check demo.pptx --json
+dw query morph demo.pptx --from 1 --to 2 --json
+dw query state demo.pptx --slide 2 --at-ms 400 --clicks-ms 0 --json
 ```
 
-The `Install` workflow repeats this into an empty root on every change, then
-drives the installed binaries against the neutral Morph demo deck.
+Choose a new output filename for each build; Deckwright refuses to overwrite an existing `.pptx`. Slide numbers are one based. Query times and click times are milliseconds since slide entry; `--clicks-ms` is the complete click history up to `--at-ms`.
 
-## Try it
+## What works today
 
-```sh
-cargo run --release -p dw-cli -- inspect /path/to/deck.pptx --json
-cargo run --release -p dw-cli -- check /path/to/deck.pptx --json
-cargo run --release -p dw-cli -- roundtrip /path/to/deck.pptx --output /path/to/new-output.pptx
-cargo run --release -p dw-cli -- query state /path/to/deck.pptx --slide 2 --at-ms 1500 --clicks-ms 1000 --json
-cargo run --release -p dw-cli -- query morph /path/to/deck.pptx --from 1 --to 2 --json
-cargo run --release -p dw-cli -- serve --max-open 8          # JSON-lines session (docs/decisions/session.md)
-cargo run --release -p dw-mcp -- --max-open 8                # MCP stdio server (docs/decisions/mcp.md)
-cargo run --release -p deckwright --example morph_demo -- /tmp/morph-demo.pptx
-cargo test --workspace --locked
-```
+| Task | Entry point |
+| --- | --- |
+| Build editable slides with shapes, text, pictures, tables, charts, and timing in the supported model | `deckwright` Rust crate; see the [Morph demo source](examples/morph_demo/main.rs) |
+| Open a `.pptx`, inspect its parts, preserve unchanged parts, and write a new package | `Package`; `dw inspect` and `dw roundtrip` |
+| Check supported package, slide, timing, and bounds rules | `dw check` |
+| Inspect slide state, timeline, and explicit Morph pairs | `dw query state`, `dw query timeline`, `dw query morph` |
+| Give an agent the same checks and queries over stdio | `dw-mcp`; see [agent integration](docs/agent-integration.md) |
 
-Checks return a nonzero exit status on errors and report unsupported coverage
-explicitly. Output paths must be new. The [three-slide example](examples/thesis/README.md)
-documents private source preparation and typed text/layout edits. The neutral
-[Morph demo](examples/morph_demo/README.md) builds a public animated deck from a generated
-blank template. Timing compilation and state/Morph queries are implemented; their
-PowerPoint oracle verification and the full 25-slide reconstruction remain pending.
+The [CLI contract](docs/decisions/query.md) defines query input and output. Reports represent the timing and geometry Deckwright understands; unsupported or ambiguous behavior is reported as unknown. Morph pairing currently covers unique explicit `!!name` matches. A passing check, successful query, or static render does **not** establish PowerPoint animation playback, font fit, or visual fidelity. Verify those in PowerPoint for any delivered deck.
 
-## Presentation authoring skill
+## Choose a workflow
 
-The [Deckwright presentation skill](skills/deckwright-presentations/SKILL.md)
-adapts the former `morph-deck` Python authoring workflow to this repository's
-Rust model, Morph timing, queries, and checks. `AGENTS.md` points agents to it
-when they create or edit a deck. The Python package and CLI were not moved.
+- [Create a presentation with an agent](skills/deckwright-presentations/SKILL.md)
+- [Connect an agent to the MCP server](docs/agent-integration.md)
+- [Compare Deckwright and python-pptx](docs/compare-python-pptx.md)
+- [Run the neutral Morph demo](examples/morph_demo/README.md)
+- [Read the benchmark method and results](docs/benchmarking.md)
 
-## Reference assets
+## Project scope
 
-The thesis deck, extracted media, detailed slide inventory and private oracle evidence remain local and are excluded from Git. Implementation must preserve original wording and visuals and keep native slide objects editable. Use generated neutral fixtures in public CI.
+Deckwright began as a reconstruction of a 25-slide thesis presentation. The [implementation plan](docs/superpowers/plans/2026-10-25-thesis-reconstruction-performance.md) records its fidelity and performance targets. The thesis source and extracted media are private and excluded from Git; the public demo uses generated neutral content. Preserve source wording, screenshots, photos, and app UI when editing a supplied deck.
+
+The reference inspection benchmark measured 205.32 ms p95 and 78.75 MiB peak RSS on its documented WSL host; see [the measurement PR](https://github.com/JoaoCodificacoes/deckwright/pull/14) for the revision and workload. Build, edit, and query budgets in the plan are targets, not measured results. The full thesis reconstruction and PowerPoint playback acceptance remain separate gates.
 
 ## Development
 
-Work through the numbered issues in dependency order. Each issue includes its scope and acceptance gate. Record correctness and performance evidence before marking work complete.
+```sh
+cargo test --workspace --locked
+```
+
+See [AGENTS.md](AGENTS.md) for repository guidance and [the oracle notes](oracle/README.md) for PowerPoint verification limits.
