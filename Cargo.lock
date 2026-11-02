@@ -112,7 +112,7 @@ dependencies = [
 
 [[package]]
 name = "deckwright"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "proptest",
  "quick-xml",
@@ -146,7 +146,7 @@ dependencies = [
 
 [[package]]
 name = "dw-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "deckwright",
  "serde_json",
@@ -155,7 +155,7 @@ dependencies = [
 
 [[package]]
 name = "dw-mcp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "deckwright",
  "serde_json",

@@ -3,7 +3,7 @@
 An MCP stdio server for inspecting, checking, and querying PowerPoint (`.pptx`)
 presentations with Deckwright.
 
-mcp-name: io.github.joaocodificacoes/deckwright
+mcp-name: io.github.JoaoCodificacoes/deckwright
 
 ```sh
 cargo install dw-mcp

@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "deckwright",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Create and inspect editable PowerPoint decks with Deckwright's Rust authoring skill.",
   "repository": "https://github.com/JoaoCodificacoes/deckwright"
 }

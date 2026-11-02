@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: publish-crates-v0.1.0
+  group: publish-crates-v0.1.1
   cancel-in-progress: false
 
 jobs:
@@ -28,7 +28,7 @@ jobs:
           metadata = json.loads(subprocess.check_output(['cargo', 'metadata', '--no-deps', '--format-version', '1']))
           versions = {p['name']: p['version'] for p in metadata['packages']}
           expected = {'deckwright', 'dw-cli', 'dw-mcp'}
-          assert {name: versions.get(name) for name in expected} == dict.fromkeys(expected, '0.1.0'), versions
+          assert {name: versions.get(name) for name in expected} == dict.fromkeys(expected, '0.1.1'), versions
           PY
       - name: Publish deckwright
         run: cargo publish --locked -p deckwright
