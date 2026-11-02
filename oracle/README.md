@@ -37,7 +37,7 @@ Inventory follows presentation relationships for order and retains raw slide, sh
 
 Click recording is deliberately pending. Before implementation, validate slide-entry and click-event dispatch against visible numbered neutral effects, record a monotonic event schedule, capture frame timestamps/rate and sample expectations, and verify media/repeat cases. PowerPoint CreateVideo alone does not prove click scheduling. Required first recordings: slides 2–3, 9–12, 15–18, 21–22; all remaining slides before their reconstruction gate. Render comparison also requires installed-font inventory and calibrated geometry/line-break checks.
 
-Current frozen hash in run.ps1 reflects the user's explicitly authorized 2026-10-25 replacement; see slide-coverage.md for old/new provenance. Identity experiment is a generated neutral deck and excludes clipboard/group operations after those attempts failed in this environment. It tests tag retention and exposes duplicate-key behavior; it does not finalize the identity decision. Run identity.ps1 with a fresh ignored output directory, under the same bounded-job supervision as run.ps1 when unattended.
+Current frozen hash in run.ps1 reflects the user's explicitly authorized 2026-10-25 replacement; the old and new hashes are recorded in this README's history and the closing evidence on #1. Identity experiment is a generated neutral deck and excludes clipboard/group operations after those attempts failed in this environment. It tests tag retention and exposes duplicate-key behavior; it does not finalize the identity decision. Run identity.ps1 with a fresh ignored output directory, under the same bounded-job supervision as run.ps1 when unattended.
 
 Guard regression tests (no private fixtures required):
 
