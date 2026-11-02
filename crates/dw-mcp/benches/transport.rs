@@ -51,6 +51,7 @@ fn rect(id: u32) -> Object {
         name: format!("Box {id}"),
         morph_name: None,
         description: None,
+        hyperlink: None,
         kind: ObjectKind::Shape {
             textbox: false,
             lock_no_group: false,

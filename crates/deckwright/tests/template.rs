@@ -31,6 +31,7 @@ fn shape(key: &str, id: u32, name: &str, preset: &str, rect: [i64; 4], rgb: &str
         name: name.into(),
         morph_name: None,
         description: None,
+        hyperlink: None,
         kind: ObjectKind::Shape {
             textbox: false,
             lock_no_group: false,

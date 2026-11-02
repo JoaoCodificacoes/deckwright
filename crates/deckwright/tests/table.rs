@@ -83,6 +83,7 @@ fn slide_with(table: Table, transform: Transform) -> Slide {
             name: "Table 1".into(),
             morph_name: None,
             description: None,
+            hyperlink: None,
             kind: ObjectKind::Table { transform, table },
         }],
         ..Default::default()

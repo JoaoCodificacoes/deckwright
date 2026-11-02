@@ -48,6 +48,7 @@ fn label(text: &str, rgb: &str, size: u32) -> TextBody {
                     ..Default::default()
                 }),
                 field: None,
+                hyperlink: None,
             }],
         }],
     }
@@ -69,6 +70,7 @@ fn shape(
         name: name.into(),
         morph_name: None,
         description: None,
+        hyperlink: None,
         kind: ObjectKind::Shape {
             textbox: false,
             lock_no_group: false,
