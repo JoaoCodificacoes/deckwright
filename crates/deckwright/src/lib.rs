@@ -11,6 +11,7 @@
 //! Inventory timing trees describe encoded OOXML, not validated playback.
 
 pub mod builder;
+pub mod deck;
 pub mod error;
 pub mod model;
 pub mod package;
