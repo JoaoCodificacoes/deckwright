@@ -76,20 +76,20 @@ fn escape(value: &str) -> String {
         .replace('"', "&quot;")
         .replace('\'', "&apos;")
 }
-fn attr(name: &str, value: impl std::fmt::Display) -> String {
+pub(crate) fn attr(name: &str, value: impl std::fmt::Display) -> String {
     format!(" {name}=\"{}\"", escape(&value.to_string()))
 }
-fn opt<T: std::fmt::Display>(name: &str, value: Option<T>) -> String {
+pub(crate) fn opt<T: std::fmt::Display>(name: &str, value: Option<T>) -> String {
     value.map(|v| attr(name, v)).unwrap_or_default()
 }
-fn element(name: &str, attrs: String, children: String) -> String {
+pub(crate) fn element(name: &str, attrs: String, children: String) -> String {
     if children.is_empty() {
         format!("<{name}{attrs}/>")
     } else {
         format!("<{name}{attrs}>{children}</{name}>")
     }
 }
-fn empty(name: &str) -> String {
+pub(crate) fn empty(name: &str) -> String {
     element(name, String::new(), String::new())
 }
 fn color(value: &Color) -> String {
@@ -105,7 +105,7 @@ fn color(value: &Color) -> String {
             .unwrap_or_default(),
     )
 }
-fn fill(value: &Fill) -> String {
+pub(crate) fn fill(value: &Fill) -> String {
     match value {
         Fill::None => empty("a:noFill"),
         Fill::Solid { color: c } => element("a:solidFill", String::new(), color(c)),
@@ -236,23 +236,7 @@ fn properties(p: &Properties) -> String {
         content += &fill(f);
     }
     if let Some(l) = &p.line {
-        // Schema order inside a:ln: fill, prstDash, headEnd, tailEnd.
-        let mut children = l.fill.as_ref().map(fill).unwrap_or_default();
-        if let Some(dash) = &l.dash {
-            children += &element("a:prstDash", attr("val", dash), String::new());
-        }
-        for (tag, end) in [("a:headEnd", &l.head_end), ("a:tailEnd", &l.tail_end)] {
-            if let Some(end) = end {
-                children += &element(
-                    tag,
-                    attr("type", &end.kind)
-                        + &opt("w", end.width.as_ref())
-                        + &opt("len", end.length.as_ref()),
-                    String::new(),
-                );
-            }
-        }
-        content += &element("a:ln", opt("w", l.width.map(|v| v.0)), children);
+        content += &line_with_tag("a:ln", l);
     }
     if let Some(effects) = &p.effects {
         let effects = effects
@@ -272,6 +256,26 @@ fn properties(p: &Properties) -> String {
         content += &element("a:effectLst", String::new(), effects);
     }
     element("p:spPr", String::new(), content)
+}
+/// a:ln and the table cell borders (lnL, lnR, lnT, lnB) share one content model.
+pub(crate) fn line_with_tag(tag: &str, l: &Line) -> String {
+    // Schema order inside a:ln: fill, prstDash, headEnd, tailEnd.
+    let mut children = l.fill.as_ref().map(fill).unwrap_or_default();
+    if let Some(dash) = &l.dash {
+        children += &element("a:prstDash", attr("val", dash), String::new());
+    }
+    for (end_tag, end) in [("a:headEnd", &l.head_end), ("a:tailEnd", &l.tail_end)] {
+        if let Some(end) = end {
+            children += &element(
+                end_tag,
+                attr("type", &end.kind)
+                    + &opt("w", end.width.as_ref())
+                    + &opt("len", end.length.as_ref()),
+                String::new(),
+            );
+        }
+    }
+    element(tag, opt("w", l.width.map(|v| v.0)), children)
 }
 fn style(value: &Option<StyleReferences>) -> String {
     value
@@ -294,6 +298,10 @@ fn style(value: &Option<StyleReferences>) -> String {
         .unwrap_or_default()
 }
 fn text(t: &TextBody) -> String {
+    text_with("p:txBody", t)
+}
+/// Shared by slide text (`p:txBody`) and table cells (`a:txBody`): same content, different tag.
+pub(crate) fn text_with(tag: &str, t: &TextBody) -> String {
     let b = &t.body;
     let attrs = opt("wrap", b.wrap.as_ref())
         + &opt("lIns", b.left.map(|v| v.0))
@@ -351,7 +359,7 @@ fn text(t: &TextBody) -> String {
         }
         content += &element("a:p", String::new(), paragraph);
     }
-    element("p:txBody", String::new(), content)
+    element(tag, String::new(), content)
 }
 /// Shared by a:rPr and a:endParaRPr: identical attributes and children, different tag.
 fn run_properties(tag: &str, s: &RunStyle) -> String {
@@ -528,6 +536,22 @@ fn object(o: &Object) -> String {
             content += &properties(p);
             content += &style(s);
         }
+        ObjectKind::Table {
+            transform: t,
+            table,
+        } => {
+            tag = "p:graphicFrame";
+            content = element(
+                "p:nvGraphicFramePr",
+                String::new(),
+                nv + &element(
+                    "p:cNvGraphicFramePr",
+                    String::new(),
+                    element("a:graphicFrameLocks", attr("noGrp", 1), String::new()),
+                ) + &empty("p:nvPr"),
+            );
+            content += &crate::table::frame_content(t, table);
+        }
         ObjectKind::Group {
             transform: t,
             children,
@@ -682,6 +706,9 @@ fn validate(slide: &Slide) -> Result<()> {
                         check_style(style, &o.key)?;
                     }
                 }
+                ObjectKind::Table { transform, table } => {
+                    crate::table::validate(transform, table, &o.key)?;
+                }
             }
         }
         Ok(())
@@ -763,7 +790,7 @@ fn validate(slide: &Slide) -> Result<()> {
     }
     Ok(())
 }
-fn check_transform(t: &Transform, key: &str) -> Result<()> {
+pub(crate) fn check_transform(t: &Transform, key: &str) -> Result<()> {
     for value in [t.x.0, t.y.0] {
         range(
             value,
@@ -792,7 +819,7 @@ fn check_transform(t: &Transform, key: &str) -> Result<()> {
     }
     Ok(())
 }
-fn check_properties(p: &Properties, key: &str) -> Result<()> {
+pub(crate) fn check_properties(p: &Properties, key: &str) -> Result<()> {
     if let Some(t) = &p.transform {
         check_transform(t, key)?;
         if t.child.is_some() {
@@ -942,7 +969,7 @@ fn check_custom(c: &CustomGeometry, key: &str) -> Result<()> {
 // Attribute domains follow the official Open-XML-SDK DrawingML/PresentationML
 // schema validators. Integer model fields already constrain angles, percentages,
 // IDs and connection indices to their corresponding signed/unsigned 32-bit types.
-fn range(value: i64, min: i64, max: i64, key: &str, field: &str) -> Result<()> {
+pub(crate) fn range(value: i64, min: i64, max: i64, key: &str, field: &str) -> Result<()> {
     if !(min..=max).contains(&value) {
         return Err(authored_error(
             key,
@@ -951,7 +978,7 @@ fn range(value: i64, min: i64, max: i64, key: &str, field: &str) -> Result<()> {
     }
     Ok(())
 }
-fn member(value: &str, allowed: &[&str], key: &str, field: &str) -> Result<()> {
+pub(crate) fn member(value: &str, allowed: &[&str], key: &str, field: &str) -> Result<()> {
     if !allowed.contains(&value) {
         return Err(authored_error(
             key,
@@ -1009,7 +1036,7 @@ fn check_run_style(style: &RunStyle, key: &str) -> Result<()> {
     }
     Ok(())
 }
-fn check_text(text: &TextBody, key: &str) -> Result<()> {
+pub(crate) fn check_text(text: &TextBody, key: &str) -> Result<()> {
     if text.paragraphs.is_empty() {
         return Err(authored_error(
             key,
