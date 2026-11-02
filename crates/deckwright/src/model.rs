@@ -84,6 +84,11 @@ pub enum ObjectKind {
         #[serde(default)]
         show_as_icon: bool,
     },
+    /// Native chart in a `p:graphicFrame`; `relationship` is the ID `Deck::add_chart` returned.
+    Chart {
+        transform: Transform,
+        relationship: String,
+    },
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -517,7 +522,8 @@ impl Slide {
             | ObjectKind::Connector { properties, .. } => properties.transform.as_mut(),
             ObjectKind::Group { transform, .. }
             | ObjectKind::Table { transform, .. }
-            | ObjectKind::Ole { transform, .. } => Some(transform),
+            | ObjectKind::Ole { transform, .. }
+            | ObjectKind::Chart { transform, .. } => Some(transform),
         }
         .ok_or_else(|| {
             authored_error(

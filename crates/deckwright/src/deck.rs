@@ -14,6 +14,8 @@
 
 use crate::{
     Error, Limits, Package, Result,
+    chart::{self, Chart},
+    xlsx,
     xml::{self, Node},
 };
 use sha2::{Digest, Sha256};
@@ -295,6 +297,24 @@ impl Deck {
             reject_controls(CORE_PART, value)?;
         }
         self.mutate(|tx| tx.core(props))
+    }
+
+    /// Stores a native chart and its embedded workbook. Returns the slide relationship ID
+    /// that `ObjectKind::Chart` takes. The chart is validated before anything is written.
+    pub fn add_chart(&mut self, slide_part: &str, chart: &Chart) -> Result<String> {
+        chart::validate(chart, slide_part)?;
+        let workbook_bytes = xlsx::workbook(chart)?;
+        self.mutate(|tx| {
+            tx.require_slide(slide_part)?;
+            let part = tx.fresh("ppt/charts", "chart", "xml");
+            let workbook = tx.fresh("ppt/embeddings", "Microsoft_Excel_Worksheet", "xlsx");
+            tx.put(&workbook, workbook_bytes);
+            tx.ensure_default("xlsx", CHART_XLSX_CT, &workbook)?;
+            tx.ensure_override(&part, CHART_CT)?;
+            let data = tx.link(&part, CHART_PACKAGE_REL, &workbook, false)?;
+            tx.put(&part, chart::chart_xml(chart, &data));
+            tx.link(slide_part, CHART_REL, &part, false)
+        })
     }
 
     /// Applies one edit. The overlay is consumed by `Package::edited`, which revalidates
@@ -998,3 +1018,10 @@ fn remove_elements(xml: &str, local: &str) -> String {
     out.push_str(&xml[last..]);
     out
 }
+
+// Charts (`Deck::add_chart`): relationship types and content types.
+const CHART_REL: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart";
+const CHART_PACKAGE_REL: &str =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/package";
+const CHART_CT: &str = "application/vnd.openxmlformats-officedocument.drawingml.chart+xml";
+const CHART_XLSX_CT: &str = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
