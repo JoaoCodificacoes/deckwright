@@ -539,3 +539,29 @@ fn serde_rejects_unknown_fields_at_kind_and_transform_levels() {
     }
     assert!(serde_json::from_value::<Slide>(base).is_ok());
 }
+
+#[test]
+fn two_ole_objects_on_one_slide_check_clean() {
+    // PowerPoint and python-pptx give each oleObj preview picture cNvPr id="0";
+    // those inner IDs are not slide shapes and must not count as duplicates.
+    let mut slide = slide_of(ole_kind("Excel.Sheet.12", false));
+    let mut second = slide.objects[0].clone();
+    second.key = "ole2".into();
+    second.id = 3;
+    slide.objects.push(second);
+    let xml = String::from_utf8(compile_slide(&slide).unwrap()).unwrap();
+    assert_eq!(xml.matches("<p:cNvPr id=\"0\"").count(), 2, "{xml}");
+    let mut deck = deck();
+    let part = deck.slides()[0].clone();
+    let links = deck
+        .add_ole_object(&part, xlsx(), "xlsx", PNG.to_vec())
+        .unwrap();
+    let mut slide = ole_slide("Excel.Sheet.12", &links);
+    let mut second = slide.objects[0].clone();
+    second.key = "ole2".into();
+    second.id = 3;
+    slide.objects.push(second);
+    deck.set_slide(&part, compile_slide(&slide).unwrap())
+        .unwrap();
+    assert!(errors(&deck.into_package()).is_empty());
+}

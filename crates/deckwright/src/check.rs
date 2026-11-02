@@ -164,7 +164,17 @@ pub fn check_package_with(package: &Package, suppressions: &[Suppression]) -> Ch
         parsed_xml.insert(name);
         let mut ids = BTreeSet::new();
         let mut morph_names = BTreeSet::new();
+        // An oleObj's preview picture carries cNvPr id="0" (as PowerPoint writes it);
+        // it is not a slide shape, so it is excluded from the duplicate-ID rule.
+        let ole_previews: Vec<*const xml::Node> = root
+            .descendants("oleObj")
+            .flat_map(|ole| ole.descendants("cNvPr"))
+            .map(|n| n as *const xml::Node)
+            .collect();
         for node in root.descendants("cNvPr") {
+            if ole_previews.contains(&(node as *const xml::Node)) {
+                continue;
+            }
             if let Some(id) = node.attrs.get("id")
                 && !ids.insert(shape_key(id))
             {
