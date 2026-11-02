@@ -1,0 +1,76 @@
+name: Release binaries
+
+on:
+  push:
+    tags:
+      - 'v0.1.0'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Build binaries
+        run: cargo build --locked --release --target ${{ matrix.target }} -p dw-cli -p dw-mcp
+      - name: Archive binaries (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir dist
+          tar -C target/${{ matrix.target }}/release -czf dist/deckwright-${{ github.ref_name }}-${{ matrix.target }}.tar.gz dw dw-mcp
+      - name: Archive binaries (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist | Out-Null
+          Compress-Archive -Path target/${{ matrix.target }}/release/dw.exe,target/${{ matrix.target }}/release/dw-mcp.exe -DestinationPath dist/deckwright-${{ github.ref_name }}-${{ matrix.target }}.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: binaries-*
+          path: dist
+          merge-multiple: true
+      - name: Package agent integrations
+        run: |
+          zip -r dist/deckwright-presentations-skill-${{ github.ref_name }}.zip skills/deckwright-presentations
+          zip -r dist/deckwright-agent-plugin-${{ github.ref_name }}.zip plugin.json .claude-plugin skills/deckwright-presentations
+      - name: Create SHA-256 checksums
+        working-directory: dist
+        run: sha256sum deckwright-* > SHA256SUMS
+      - uses: softprops/action-gh-release@v3
+        with:
+          prerelease: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/deckwright-*
+            dist/SHA256SUMS

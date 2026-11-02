@@ -3,6 +3,12 @@ name = "deckwright"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+description = "Author and inspect editable PowerPoint presentations"
+readme = "README.md"
+keywords = ["powerpoint", "pptx", "presentation", "ooxml", "animation"]
+categories = ["multimedia", "parser-implementations"]
+include = ["/src/**", "/README.md", "/LICENSE", "/benches/**"]
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true

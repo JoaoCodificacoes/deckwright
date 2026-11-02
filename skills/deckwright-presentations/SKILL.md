@@ -9,6 +9,25 @@ This is the authoring workflow adapted from `morph-deck`. Deckwright's Rust
 model, package, timing, query, and check APIs are the implementation. The old
 `morphdeck` Python package and its CLI commands are not Deckwright commands.
 
+## Install for an agent
+
+Install a [Rust toolchain](https://www.rust-lang.org/tools/install), then:
+
+```sh
+git clone https://github.com/JoaoCodificacoes/deckwright.git
+cd deckwright
+cargo install --locked --path crates/dw-cli
+cargo install --locked --path crates/dw-mcp
+```
+
+The `dw` and `dw-mcp` binaries are built from this checkout; this guide does
+not assume a published package. An agent that supports repository instructions
+can read this file in place. For an agent that loads personal skills, copy the
+`skills/deckwright-presentations` directory into its skills directory. After
+copying, resolve the relative links below from the skill's original location
+in the repository checkout. [Agent integration](../../docs/agent-integration.md)
+shows how to connect the MCP server.
+
 ## Start from the right source
 
 - **New neutral deck:** use `deckwright::template::blank(slide_count, width, height)`.
@@ -89,6 +108,7 @@ cargo run --locked -p deckwright --example morph_demo -- build/morph-demo.pptx
 cargo run --locked -p dw-cli -- check build/morph-demo.pptx --json
 cargo run --locked -p dw-cli -- query morph build/morph-demo.pptx --from 1 --to 2 --json
 cargo run --locked -p dw-cli -- query timeline build/morph-demo.pptx --slide 2 --json
+cargo run --locked -p dw-cli -- query state build/morph-demo.pptx --slide 2 --at-ms 400 --clicks-ms 0 --json
 cargo test --workspace --locked
 ```
 
@@ -106,9 +126,26 @@ visibly moved the object. Do not claim playback or visual fidelity from a
 static PNG or a successful package check. The [PowerPoint oracle](../../oracle/README.md)
 documents the repository's guarded reference checks and their limits.
 
+## Command and MCP reference
+
+| Need | CLI | MCP tool |
+| --- | --- | --- |
+| Open a deck for repeated queries | `dw inspect FILE --json` | `dw_open {"path":"FILE"}` returns a handle |
+| Check supported rules | `dw check FILE --json` | `dw_check {"handle":"h1"}` |
+| Sample a slide after clicks | `dw query state FILE --slide 2 --at-ms 400 --clicks-ms 0 --json` | `dw_state {"handle":"h1","slide":2,"at_ms":400,"clicks_ms":[0]}` |
+| Inspect timing | `dw query timeline FILE --slide 2 --json` | `dw_timeline {"handle":"h1","slide":2}` |
+| Inspect explicit Morph pairs | `dw query morph FILE --from 1 --to 2 --json` | `dw_morph {"handle":"h1","from":1,"to":2}` |
+
+The MCP server also has `dw_refresh` to reread a changed file and `dw_close`
+to release its handle. Its tools inspect and check; authoring uses the Rust API
+and a new output file. `dw roundtrip INPUT --output NEW_OUTPUT` preserves
+unchanged package parts but is not a visual or animation verification step.
+See the [query contract](../../docs/decisions/query.md) and
+[MCP contract](../../docs/decisions/mcp.md) for exact arguments and limits.
+
 ## Source and licence
 
 Adapted from the author's `morph-deck` `AGENTS.md` and `skill/SKILL.md`.
 The source workflow is MIT licensed, copyright 2026 João Ferreira; see
-[LICENSE](LICENSE). The Python library, template inspector, renderer, video
+[LICENSE](../../LICENSE). The Python library, template inspector, renderer, video
 exporter, and its linter were not migrated by this skill.

@@ -3,13 +3,19 @@ name = "dw-mcp"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+description = "MCP stdio server for inspecting and checking PowerPoint presentations"
+readme = "README.md"
+keywords = ["powerpoint", "pptx", "mcp", "presentation"]
+categories = ["command-line-utilities", "development-tools"]
+include = ["/src/**", "/README.md", "/LICENSE", "/benches/**"]
 
 [[bin]]
 name = "dw-mcp"
 path = "src/main.rs"
 
 [dependencies]
-deckwright = { path = "../deckwright" }
+deckwright = { version = "0.1.0", path = "../deckwright" }
 serde_json.workspace = true
 
 [[bench]]
