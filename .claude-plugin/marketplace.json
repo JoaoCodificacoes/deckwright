@@ -1,0 +1,16 @@
+{
+  "name": "deckwright",
+  "owner": {
+    "name": "João Ferreira"
+  },
+  "metadata": {
+    "description": "Deckwright: Rust PowerPoint engine plugin for editable decks, Morph timelines, and animation inspection."
+  },
+  "plugins": [
+    {
+      "name": "deckwright",
+      "source": "./",
+      "description": "Create and inspect editable PowerPoint decks with Deckwright's Rust authoring skill."
+    }
+  ]
+}
