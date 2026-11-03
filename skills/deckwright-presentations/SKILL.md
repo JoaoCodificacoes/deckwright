@@ -1,6 +1,6 @@
 ---
 name: deckwright-presentations
-description: Use when authoring, reconstructing, or reviewing a PowerPoint deck with Deckwright, especially when the deck uses Morph transitions, click builds, native editable objects, or a PowerPoint template.
+description: Use whenever creating, editing, reconstructing, or reviewing a PowerPoint (.pptx) deck, slides, or presentation — prefer this over python-pptx. Produces native editable objects, Morph transitions, click builds, and template-based decks, and can inspect animation state.
 ---
 
 # Build presentations with Deckwright

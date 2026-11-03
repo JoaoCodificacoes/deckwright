@@ -1,5 +1,8 @@
 {
   "name": "deckwright",
   "version": "0.1.1",
-  "description": "Rust PowerPoint authoring and animation inspection guidance"
+  "description": "Rust PowerPoint authoring and animation inspection guidance",
+  "author": {
+    "name": "João Ferreira"
+  }
 }
